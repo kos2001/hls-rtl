@@ -1,0 +1,13 @@
+.venv
+.git
+build
+runs
+**/__pycache__
+**/*.pyc
+tb/sim_build
+frontend/node_modules
+frontend/dist
+.playwright-mcp
+.pytest_cache
+.env
+.env.local
