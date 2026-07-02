@@ -59,10 +59,12 @@ export const api = {
 
   telemetry: (kind: string) => request<Telemetry>(`/telemetry/${kind}`),
 
-  chat: (message: string) =>
+  // `session`: per-conversation id — same id keeps transcript continuity on
+  // the gateway, a new id starts a fresh session (no stale design memory).
+  chat: (message: string, session?: string) =>
     request<ChatResponse>('/chat', {
       method: 'POST',
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, session }),
     }),
 
   plan: (uarch: string, algorithm: string) =>

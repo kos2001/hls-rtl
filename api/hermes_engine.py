@@ -76,19 +76,27 @@ class HermesGateway:
         messages.append({"role": "user", "content": prompt})
         return {"model": self.model, "messages": messages, "stream": False}
 
-    def _headers(self, user_id: str) -> Dict[str, str]:
-        return {
+    def _headers(self, user_id: str, session_id: Optional[str]) -> Dict[str, str]:
+        # X-Hermes-Session-Id opts into transcript continuity: the SAME id
+        # loads prior history on the agent side. A fresh id (or none) gives a
+        # stateless call. Callers pass a per-conversation id for chat and a
+        # fresh one per self-contained request (plan/reflect) so answers don't
+        # inherit stale design facts from old transcripts.
+        headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
             "X-Hermes-Session-Key": f"hls-rtl:{self.name}:{user_id}",
-            "X-Hermes-Session-Id": f"{self.name}-{user_id}",
         }
+        if session_id:
+            headers["X-Hermes-Session-Id"] = f"{self.name}-{session_id}"
+        return headers
 
-    async def run_async(self, prompt: str, user_id: str = "default-user") -> HermesResponse:
+    async def run_async(self, prompt: str, user_id: str = "default-user",
+                        session_id: Optional[str] = None) -> HermesResponse:
         if not self.api_key:
             raise RuntimeError("HERMES_GATEWAY_API_KEY is missing")
         url = f"{self.base_url}/chat/completions"
-        payload, headers = self._payload(prompt), self._headers(user_id)
+        payload, headers = self._payload(prompt), self._headers(user_id, session_id)
         last_exc: Optional[Exception] = None
         for attempt in range(3):
             try:
