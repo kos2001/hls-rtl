@@ -40,7 +40,10 @@ PLANNER_INSTRUCTIONS = (
     "the verification hooks (which golden patterns prove which behavior). When a "
     "'changed' section is given, mark each step as NEW / MODIFIED / UNCHANGED so "
     "downstream incremental regeneration touches only what changed. Be concise "
-    "and concrete; do not emit RTL yet."
+    "and concrete; do not emit RTL yet. Write the plan in the same language as "
+    "the input (Korean in -> Korean plan, English in -> English plan), but ALWAYS "
+    "keep the per-step tags as the English keywords NEW / MODIFIED / UNCHANGED "
+    "(e.g. '3. MODIFIED: ...') so they stay machine-parseable."
 )
 
 REFLECTION_INSTRUCTIONS = (
