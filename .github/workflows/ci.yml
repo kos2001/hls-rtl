@@ -15,14 +15,19 @@ jobs:
           python-version: "3.11"
       - name: Install EDA tools
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends verilator yosys
-      - name: Install Python deps
+      - name: Install Python deps (venv)
+        # A venv is required: outside one, cocotb's Makefile exports PYTHONHOME
+        # (for the embedded interpreter), which poisons the system python3 that
+        # Verilator's build scripts invoke -> "No module named 'encodings'".
         run: |
-          pip install -r requirements.txt
-          pip install -r api/requirements.txt
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt -r api/requirements.txt
       - name: Unit tests (golden model, stimulus, test set)
-        run: python -m pytest tests/ -q
+        run: .venv/bin/python -m pytest tests/ -q
       - name: 3-way RTL regression (cocotb + verilator)
-        run: make -C tb -s
+        run: |
+          source .venv/bin/activate
+          make -C tb -s
 
   frontend:
     runs-on: ubuntu-latest
