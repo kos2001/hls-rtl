@@ -10,9 +10,11 @@ same build works behind a dev proxy and when FastAPI serves the built frontend.
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import sys
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -74,6 +76,9 @@ class HealthOut(BaseModel):
 class ChatIn(BaseModel):
     message: str
     user_id: str = "default-user"
+    # Per-conversation id from the UI: same id -> transcript continuity on the
+    # gateway; a new id (UI "Clear") starts fresh. None -> stateless call.
+    session: Optional[str] = None
 
 
 class ChatOut(BaseModel):
@@ -86,8 +91,46 @@ _RTL_ASSISTANT_INSTRUCTIONS = (
     "ready/valid, per-channel-LUT gamma-correction core verified by a 3-way "
     "(Python golden / SystemC / Verilog RTL) bit-exact scoreboard. Answer "
     "concisely and technically about the design, its handshake/latency contract, "
-    "the test set, and verification results."
+    "the test set, and verification results. Answer in the same language the "
+    "user writes in (Korean question -> Korean answer)."
 )
+
+
+def _design_digest(max_chars: int = 1800) -> str:
+    """Live digest of the CURRENT design state, injected per request so agent
+    answers are grounded in today's RTL rather than stale session memory
+    (the gateway's X-Hermes-Session-Id opt-in loads prior transcripts)."""
+    parts = ["\n\n=== CURRENT DESIGN STATE (authoritative, read just now) ===",
+             "If session memory conflicts with the below, the below wins."]
+    # Highest-value facts first — the digest is length-capped.
+    try:
+        rtl = (_ROOT / "rtl" / "gamma.v").read_text()
+        params = [l.strip() for l in rtl.splitlines() if "parameter integer" in l]
+        assigns = [l.strip() for l in rtl.splitlines()
+                   if l.strip().startswith("assign in_ready")
+                   or l.strip().startswith("assign out_valid")]
+        parts.append("parameters: " + " | ".join(params))
+        parts.append("handshake: " + " | ".join(assigns))
+    except OSError:
+        parts.append("(rtl/gamma.v unreadable)")
+        rtl = ""
+    try:
+        res = json.loads((_ROOT / "frontend" / "public" / "results.json").read_text())
+        s = res["summary"]
+        parts.append(f"verification: {s['passed']}/{s['total_patterns']} patterns pass, "
+                     f"{s['total_pixels']} pixels bit-exact")
+    except Exception:
+        pass
+    if rtl:
+        header = []
+        for line in rtl.splitlines():
+            if line.startswith("//"):
+                header.append(line)
+            elif header:
+                break
+        parts.append("rtl/gamma.v contract header:\n" + "\n".join(header[:16]))
+    digest = "\n".join(parts)
+    return digest[:max_chars]
 
 
 # ---- Routes ----
@@ -232,8 +275,13 @@ async def plan_route(req: PlanIn) -> Dict[str, Any]:
     if not s.has_real_key:
         raise HTTPException(503, "Hermes Gateway credentials missing (set HERMES_GATEWAY_API_KEY)")
     prompt = f"uArch document (existing + changed):\n{req.uarch}\n\nAlgorithm (Python):\n{req.algorithm}"
+    planner = agents.build_planner()
+    planner.instructions += _design_digest()
     try:
-        resp = await agents.build_planner().run_async(prompt, user_id=req.user_id)
+        # Fresh session per plan request: plans are self-contained and must not
+        # inherit stale design facts from earlier transcripts.
+        resp = await planner.run_async(prompt, user_id=req.user_id,
+                                       session_id=uuid.uuid4().hex)
     except RuntimeError as exc:
         raise HTTPException(502, str(exc))
     return {"plan": resp.content}
@@ -309,11 +357,12 @@ async def chat(req: ChatIn) -> ChatOut:
         base_url=s.hermes_gateway_base_url,
         api_key=s.hermes_gateway_api_key,
         model=s.hermes_gateway_model,
-        instructions=agents.apply_eda_skills(_RTL_ASSISTANT_INSTRUCTIONS),
+        instructions=agents.apply_eda_skills(_RTL_ASSISTANT_INSTRUCTIONS) + _design_digest(),
         timeout=s.hermes_gateway_timeout,
     )
     try:
-        resp = await gw.run_async(req.message, user_id=req.user_id)
+        resp = await gw.run_async(req.message, user_id=req.user_id,
+                                  session_id=req.session)
     except RuntimeError as exc:
         raise HTTPException(502, str(exc))
     return ChatOut(content=resp.content, user_id=req.user_id)

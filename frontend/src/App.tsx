@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from './api'
+import { ChatPanel, PlanTab } from './PlanAsk'
+import { Busy, Sparkline, useElapsed } from './ui'
 import type {
   EquivResult,
   Health,
@@ -130,6 +132,7 @@ function SignoffPanel({ telemetry, onRun }: { telemetry: Telemetry | null; onRun
   const [report, setReport] = useState<SignoffReport | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const sec = useElapsed(busy)
   async function run() {
     setBusy(true); setError(null)
     try { setReport(await api.signoff(true)); onRun() }
@@ -146,6 +149,13 @@ function SignoffPanel({ telemetry, onRun }: { telemetry: Telemetry | null; onRun
         lint → design → synthesize → simulate (real 3-way cocotb regression).
         {telemetry?.count ? ` ${telemetry.count} run(s), mean ${telemetry.mean_score}, last ${telemetry.last_score}.` : ''}
       </p>
+      {telemetry?.history && telemetry.history.filter((h) => h.score != null).length >= 2 && (
+        <div className="trend-row">
+          <span className="muted small">score trend</span>
+          <Sparkline values={telemetry.history.map((h) => h.score).filter((s): s is number => s != null)} />
+        </div>
+      )}
+      {busy && <Busy label="Sign-off ladder running (includes full cocotb regression)" sec={sec} />}
       {error && <pre className="chat-error">{error}</pre>}
       {report && (
         <>
@@ -165,79 +175,11 @@ function SignoffPanel({ telemetry, onRun }: { telemetry: Telemetry | null; onRun
   )
 }
 
-// ---------- Plan tab (AI-RTL workbench core) ----------
-function PlanTab({ gatewayReady }: { gatewayReady: boolean }) {
-  const [uarch, setUarch] = useState('8-bit per-channel gamma LUT, 1 px/cycle, ready/valid handshake.\nCHANGED: add a 2-deep skid buffer for backpressure.')
-  const [algo, setAlgo] = useState('out[c] = lut[c][in[c]]  # per channel, in-order')
-  const [plan, setPlan] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-
-  async function generate() {
-    setBusy(true); setErr(null); setPlan(null)
-    try { setPlan((await api.plan(uarch, algo)).plan) }
-    catch (e) { setErr(e instanceof Error ? e.message : String(e)) }
-    finally { setBusy(false) }
-  }
-
-  return (
-    <>
-      <section className="card">
-        <h2>Plan from uArch + Algorithm</h2>
-        <p className="muted small">
-          Reasoning module (Spec2RTL enabler #1): uArch (existing + changed) + Python algorithm →
-          step-by-step implementation plan, each step tagged NEW / MODIFIED / UNCHANGED for incremental regen.
-          {!gatewayReady && ' Requires the Hermes Gateway key.'}
-        </p>
-        <label className="fld-label">uArch document (existing + changed)</label>
-        <textarea value={uarch} onChange={(e) => setUarch(e.target.value)} rows={4} />
-        <label className="fld-label">Algorithm reference (Python golden)</label>
-        <textarea value={algo} onChange={(e) => setAlgo(e.target.value)} rows={2} />
-        <div className="chat-actions">
-          <button onClick={generate} disabled={busy || !uarch.trim()}>{busy ? 'Planning…' : 'Generate plan'}</button>
-        </div>
-        {err && <pre className="chat-error">{err}</pre>}
-        {plan && <pre className="chat-answer">{plan}</pre>}
-      </section>
-      <ChatPanel gatewayReady={gatewayReady} />
-    </>
-  )
-}
-
-function ChatPanel({ gatewayReady }: { gatewayReady: boolean }) {
-  const [message, setMessage] = useState('')
-  const [answer, setAnswer] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  async function send() {
-    if (!message.trim() || busy) return
-    setBusy(true); setError(null); setAnswer(null)
-    try { setAnswer((await api.chat(message.trim())).content) }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)) }
-    finally { setBusy(false) }
-  }
-  return (
-    <section className="card chat">
-      <h2>Ask Hermes</h2>
-      <p className="muted small">
-        RTL-assistant chat via the Hermes Gateway.{!gatewayReady && ' Set HERMES_GATEWAY_API_KEY to enable.'}
-      </p>
-      <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={3}
-        placeholder="e.g. Explain the ready/valid handshake of the gamma DUT."
-        onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send() }} />
-      <div className="chat-actions">
-        <button onClick={send} disabled={busy || !message.trim()}>{busy ? 'Asking…' : 'Send  (⌘/Ctrl+Enter)'}</button>
-      </div>
-      {error && <pre className="chat-error">{error}</pre>}
-      {answer && <pre className="chat-answer">{answer}</pre>}
-    </section>
-  )
-}
-
 // ---------- Tools tab ----------
 function ProgressiveCard() {
   const [r, setR] = useState<Progressive | null>(null)
   const [busy, setBusy] = useState(false)
+  const sec = useElapsed(busy)
   async function run() { setBusy(true); try { setR(await api.progressive(true)) } finally { setBusy(false) } }
   return (
     <section className="card">
@@ -246,6 +188,7 @@ function ProgressiveCard() {
         <button onClick={run} disabled={busy}>{busy ? 'Running…' : 'Run 3-way'}</button>
       </div>
       <p className="muted small">golden (Python) → SystemC → RTL, each proven bit-exact by the scoreboard.</p>
+      {busy && <Busy label="Running the cocotb 3-way regression" sec={sec} />}
       {r && (
         <div className="ladder">
           {r.representations.map((rep) => (
@@ -352,15 +295,26 @@ export default function App() {
   const [qor, setQor] = useState<QoRReport | null>(null)
   const [telemetry, setTelemetry] = useState<Telemetry | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
 
   function refreshTelemetry() { api.telemetry('signoff').then(setTelemetry).catch(() => {}) }
 
-  useEffect(() => {
-    api.health().then(setHealth).catch(() => setHealth(null))
-    api.verification().then(setData).catch((e) => setError(e instanceof Error ? e.message : String(e)))
-    api.analyze().then(setQor).catch(() => setQor(null))
-    refreshTelemetry()
-  }, [])
+  async function loadAll() {
+    setRefreshing(true)
+    setError(null)
+    await Promise.allSettled([
+      api.health().then(setHealth).catch(() => setHealth(null)),
+      api.verification().then(setData)
+        .catch((e) => setError(e instanceof Error ? e.message : String(e))),
+      api.analyze().then(setQor).catch(() => setQor(null)),
+      api.telemetry('signoff').then(setTelemetry).catch(() => {}),
+    ])
+    setUpdatedAt(new Date())
+    setRefreshing(false)
+  }
+
+  useEffect(() => { loadAll() }, [])
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'verify', label: 'Verify' },
@@ -375,7 +329,17 @@ export default function App() {
           <h1>AI-Driven RTL Workbench</h1>
           <p className="muted">gamma core · Python golden ↔ SystemC ↔ RTL · plan → generate → verify</p>
         </div>
-        <HealthPill health={health} />
+        <div className="topbar-right">
+          <HealthPill health={health} />
+          <div className="topbar-actions">
+            <button className="btn-ghost" onClick={loadAll} disabled={refreshing}>
+              {refreshing ? 'Refreshing…' : '↻ Refresh'}
+            </button>
+            {updatedAt && (
+              <span className="muted small">updated {updatedAt.toLocaleTimeString()}</span>
+            )}
+          </div>
+        </div>
       </header>
 
       <nav className="tabs">
@@ -391,7 +355,12 @@ export default function App() {
       {tab === 'verify' && (data
         ? <VerifyTab data={data} qor={qor} telemetry={telemetry} onSignoff={refreshTelemetry} />
         : <div className="card muted">Loading verification results…</div>)}
-      {tab === 'plan' && <PlanTab gatewayReady={!!health?.has_key} />}
+      {tab === 'plan' && (
+        <>
+          <PlanTab gatewayReady={!!health?.has_key} />
+          <ChatPanel gatewayReady={!!health?.has_key} />
+        </>
+      )}
       {tab === 'tools' && <ToolsTab />}
     </div>
   )
