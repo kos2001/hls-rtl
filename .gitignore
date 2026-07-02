@@ -1,0 +1,15 @@
+.env
+.env.local
+__pycache__/
+*.pyc
+.venv/
+build/
+runs/
+graphify-out/
+tb/sim_build/
+tb/results.xml
+frontend/node_modules/
+frontend/dist/
+.DS_Store
+.pytest_cache/
+.playwright-mcp/
