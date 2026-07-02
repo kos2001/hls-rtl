@@ -1,0 +1,101 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+A bit-exact verification skeleton for a **gamma-correction pixel core**, kept in
+lockstep across three independent models. A small FastAPI **api-server** and a
+React **dashboard** sit on top to surface results and RTL quality.
+
+Two layers, do not confuse them:
+- **Verification core** (`golden/`, `systemc/`, `rtl/`, `tb/`, `tests/`, `scripts/`) — the actual hardware + its 3-way scoreboard.
+- **Web layer** (`api/`, `frontend/`) — serves verification results and proxies an RTL-assistant chat through the Hermes Gateway. Ported/adapted from the sibling `../ai_driven_rtl` project.
+
+## The bit-exact contract (most important thing to know)
+
+Three models must produce **identical** output for the same stimulus + LUTs:
+1. `golden/gamma_golden.py` — numpy reference, the **single source of truth**.
+2. `systemc/gamma_sc.{h,cpp}` — cycle-accurate SystemC mirror.
+3. `rtl/gamma.v` — Verilog DUT (1 pixel/cycle, ready/valid, per-channel LUT).
+
+Equality is verified per pattern via SHA-256 frame hashes. The DUT contract:
+a parameterizable elastic **FIFO** (`FIFO_DEPTH`, default 8) with
+`in_ready = (count != FIFO_DEPTH)` — registered occupancy only, no
+combinational out_ready→in_ready path — **1-cycle latency** from accepted
+input to valid output (the FIFO only fills during a downstream stall), async
+active-low reset clearing pointers/occupancy. The RTL is
+intentionally **portable Verilog-2001** (`reg`/`wire`, `always @`) — do not
+"modernize" it to SystemVerilog without reason; the cocotb flow runs under
+`TOPLEVEL_LANG=verilog`.
+
+**When changing precision/depth (the Δ-propagation drill):** bump `LUT_SIZE`/
+`PIXEL_W`/`LUT_DEPTH` together in `gamma_golden.py`, `gamma.v`, AND `gamma_sc.h`
+— the three must stay aligned or the scoreboard breaks. `gamma.v` also asserts
+`LUT_DEPTH == 2**PIXEL_W` at elaboration.
+
+The canonical test set lives in `tb/test_set.py` (patterns + per-channel LUTs).
+**Pattern order is an append-only contract** — `build/sc_out.txt` is consumed
+sequentially, so only append new patterns. Per-channel gammas are deliberately
+distinct (R=2.2, G=1.8, B=2.8) so a swapped/crossed channel cannot alias to a
+bit-exact pass.
+
+## Commands
+
+```sh
+# Setup (cocotb needs an activated venv)
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt          # numpy, cocotb<2.0, pytest
+pip install -r api/requirements.txt       # fastapi, uvicorn, httpx, pydantic, python-dotenv
+
+# Full regression (unit tests -> SystemC inputs -> SystemC sim -> cocotb 3-way)
+./scripts/run_3way.sh
+
+# Layers individually
+python -m pytest tests/ -q                # L0: unit tests, no simulator
+cd tb && make                             # L1+L2: directed + 3-way RTL tests (verilator)
+
+# One cocotb test (TESTCASE = function name in tb/test_gamma.py)
+cd tb && make TESTCASE=test_single_pixel_latency
+cd tb && make WAVES=1                      # add VCD dump (~30% slower)
+
+# Build the optional standalone SystemC sim (enables the SC compare)
+g++ -std=c++17 -I$SYSTEMC_HOME/include -L$SYSTEMC_HOME/lib \
+    systemc/sim_main.cpp systemc/gamma_sc.cpp -lsystemc -o build/gamma_sc_sim
+
+# Web layer
+uvicorn api.server:app --host 127.0.0.1 --port 8012     # api-server (serves frontend/dist if built)
+cd frontend && npm install && npm run dev               # dashboard dev server (proxies /api -> :8012)
+cd frontend && npm run build                            # production build (tsc -b && vite build)
+```
+
+### Testbench knobs (env vars for `make` / cocotb)
+- `GAMMA=<float>` — override all three channels with one gamma (legacy single-gamma flow).
+- `BP_PROFILE` — `split` (default: data coverage then protocol coverage), `full` (every pattern × every backpressure profile, nightly), `single` (one env-defined profile).
+- `BP_SEED`, `BP_IN_STALL`, `BP_OUT_STALL`, `BP_IN_BURST`, `BP_OUT_BURST` — control the backpressure profile (only with `BP_PROFILE=single`). Backpressure changes ordering, not values; bit-exactness must still hold.
+
+If `build/sc_out.txt` is absent the SystemC compare is **skipped** (not failed) —
+the RTL-vs-golden comparison still gates. See `TESTPLAN.md` for the L0/L1/L2
+layer rationale and known gaps.
+
+## Web layer architecture
+
+`api/server.py` (FastAPI) serves the SPA and exposes, under `/api/*` (the prefix
+is stripped in-process so the same client works behind the dev proxy and the
+built container):
+- `GET /verification` — live scoreboard, computed from the golden model via `scripts/gen_dashboard_data.py::build_results()`; SHA hashes match the cocotb run.
+- `GET /analyze`, `/drc`, `/lint` — RTL QoR (verilator lint + yosys synth + structural checks → 0-100 score), design-rule report. Implemented in `api/rtl_qor.py`, **calibrated for Verilog-2001** (does not penalize `reg`/`wire` or `always @`).
+- `POST /signoff` — lint → design → synthesize → **the real 3-way cocotb regression** (`make -C tb`) → consolidated verdict (`api/signoff.py`).
+- `GET /telemetry/{kind}` — run trends archived to `runs/` (`api/telemetry.py`).
+- `POST /chat` — RTL-assistant routed through the **Hermes Gateway** (`api/hermes_engine.py`, an OpenAI-compatible `/v1/chat/completions` agent server). Returns **503** until `HERMES_GATEWAY_API_KEY` is set in `.env`; the gateway runs separately (default `:8643`). Config in `api/config.py`.
+
+`frontend/` is React 19 + Vite 7 + TypeScript; data adapter in `src/api.ts`
+falls back to bundled `public/results.json` when the backend is unreachable.
+Regenerate that snapshot with
+`PYTHONPATH=tb:golden python scripts/gen_dashboard_data.py`.
+
+## Conventions
+
+- The web layer is **self-contained** — it does not import from `../ai_driven_rtl`; relevant logic was ported in. Keep it that way.
+- Python imports across the verification core rely on `sys.path` injection of `golden/` and `tb/` (see top of `tb/test_gamma.py` and `scripts/gen_dashboard_data.py`). Run scripts with `PYTHONPATH=tb:golden` or from the locations that set this up.
+- `scripts/jira_*.py` are project-management glue, unrelated to the DUT.

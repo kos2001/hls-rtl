@@ -1,0 +1,139 @@
+{
+  "schema_version": "1.0",
+  "source": "golden model (gamma_golden) over test_set; mirrors cocotb 3-way scoreboard",
+  "design": {
+    "module": "gamma",
+    "pixel_w": 8,
+    "lut_depth": 256
+  },
+  "gammas": {
+    "r": 2.2,
+    "g": 1.8,
+    "b": 2.8
+  },
+  "summary": {
+    "total_patterns": 13,
+    "passed": 13,
+    "failed": 0,
+    "total_pixels": 6306
+  },
+  "patterns": [
+    {
+      "name": "edge_cases",
+      "pixels": 24,
+      "status": "pass",
+      "mismatches": 0,
+      "golden_sha256": "c6953dfb5736f5a5d020985b066d6ffd849a51eb0f2c410697f0a0a6026a6b46",
+      "rtl_sha256": "c6953dfb5736f5a5d020985b066d6ffd849a51eb0f2c410697f0a0a6026a6b46",
+      "sc_sha256": null
+    },
+    {
+      "name": "colorbar",
+      "pixels": 512,
+      "status": "pass",
+      "mismatches": 0,
+      "golden_sha256": "2cf83c25122a7bf3dce5d8ec14f42ab87c2cdd3f6b364b62b8f2cea81104b793",
+      "rtl_sha256": "2cf83c25122a7bf3dce5d8ec14f42ab87c2cdd3f6b364b62b8f2cea81104b793",
+      "sc_sha256": null
+    },
+    {
+      "name": "gradient",
+      "pixels": 2048,
+      "status": "pass",
+      "mismatches": 0,
+      "golden_sha256": "99fcc7540338a403171113343572bc0c767f6dc2fad220013f0517a64936ce1e",
+      "rtl_sha256": "99fcc7540338a403171113343572bc0c767f6dc2fad220013f0517a64936ce1e",
+      "sc_sha256": null
+    },
+    {
+      "name": "random_seed0",
+      "pixels": 512,
+      "status": "pass",
+      "mismatches": 0,
+      "golden_sha256": "7db3316eb06e104c52660706ad9bd890dc495df4ec66570ba8da395b439f85bd",
+      "rtl_sha256": "7db3316eb06e104c52660706ad9bd890dc495df4ec66570ba8da395b439f85bd",
+      "sc_sha256": null
+    },
+    {
+      "name": "lut_sweep",
+      "pixels": 256,
+      "status": "pass",
+      "mismatches": 0,
+      "golden_sha256": "6b7823fc01ffb48e54ca99b06e610df9a76c43e3071c5334229ccb5092667a2c",
+      "rtl_sha256": "6b7823fc01ffb48e54ca99b06e610df9a76c43e3071c5334229ccb5092667a2c",
+      "sc_sha256": null
+    },
+    {
+      "name": "channel_isolation",
+      "pixels": 768,
+      "status": "pass",
+      "mismatches": 0,
+      "golden_sha256": "7985c51abdca65ab9d366896f0637688a99632822e202866f54a28295bad4941",
+      "rtl_sha256": "7985c51abdca65ab9d366896f0637688a99632822e202866f54a28295bad4941",
+      "sc_sha256": null
+    },
+    {
+      "name": "checkerboard",
+      "pixels": 512,
+      "status": "pass",
+      "mismatches": 0,
+      "golden_sha256": "da13e9440e36c6f3b27083dbe5f174582969dd0dfd52f21af4a32aa7786e9040",
+      "rtl_sha256": "da13e9440e36c6f3b27083dbe5f174582969dd0dfd52f21af4a32aa7786e9040",
+      "sc_sha256": null
+    },
+    {
+      "name": "near_extremes",
+      "pixels": 512,
+      "status": "pass",
+      "mismatches": 0,
+      "golden_sha256": "d066b513e1d3bb1f322dead72b5740af26aa1ace93e568235d41440e16365c4e",
+      "rtl_sha256": "d066b513e1d3bb1f322dead72b5740af26aa1ace93e568235d41440e16365c4e",
+      "sc_sha256": null
+    },
+    {
+      "name": "impulse",
+      "pixels": 128,
+      "status": "pass",
+      "mismatches": 0,
+      "golden_sha256": "2bae63cdd4b556639a1629568bf0a7e9f4e39bc19064b7d8c6e8678abec066ba",
+      "rtl_sha256": "2bae63cdd4b556639a1629568bf0a7e9f4e39bc19064b7d8c6e8678abec066ba",
+      "sc_sha256": null
+    },
+    {
+      "name": "adjacent_codes",
+      "pixels": 256,
+      "status": "pass",
+      "mismatches": 0,
+      "golden_sha256": "b7232d8fddb7886e6b9d72b5c1a6c85fd212c9cf1deaffabae76baa3200250da",
+      "rtl_sha256": "b7232d8fddb7886e6b9d72b5c1a6c85fd212c9cf1deaffabae76baa3200250da",
+      "sc_sha256": null
+    },
+    {
+      "name": "gamma_knee",
+      "pixels": 256,
+      "status": "pass",
+      "mismatches": 0,
+      "golden_sha256": "c7d87f71cf4e87ba40c704478f0675dbf8d488bb1fd093b2f8ecf026e57c38c2",
+      "rtl_sha256": "c7d87f71cf4e87ba40c704478f0675dbf8d488bb1fd093b2f8ecf026e57c38c2",
+      "sc_sha256": null
+    },
+    {
+      "name": "walking_ones",
+      "pixels": 10,
+      "status": "pass",
+      "mismatches": 0,
+      "golden_sha256": "181c4adab2ac991521f2ca5125ebe03ba117ed1755219a5d098c48792b38d64a",
+      "rtl_sha256": "181c4adab2ac991521f2ca5125ebe03ba117ed1755219a5d098c48792b38d64a",
+      "sc_sha256": null
+    },
+    {
+      "name": "random_seed2",
+      "pixels": 512,
+      "status": "pass",
+      "mismatches": 0,
+      "golden_sha256": "28a1f6f23c5f0622a012926254348beaab6d46dbff9ae086e437510b717dd27b",
+      "rtl_sha256": "28a1f6f23c5f0622a012926254348beaab6d46dbff9ae086e437510b717dd27b",
+      "sc_sha256": null
+    }
+  ]
+}
