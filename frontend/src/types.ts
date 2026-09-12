@@ -33,6 +33,8 @@ export interface VerificationResults {
 export interface ChatResponse {
   content: string
   user_id: string
+  /** Knowledge-base passages injected as grounding for this answer. */
+  citations?: KbChunk[]
 }
 
 export interface QoRCheck {
@@ -220,4 +222,33 @@ export interface Schematic {
   nodes?: SchematicNode[]
   edges?: SchematicEdge[]
   note?: string
+}
+
+// ---------- Knowledge base ----------
+export interface KbChunk {
+  id: string
+  source: string
+  kind: 'verilog' | 'python' | 'cpp' | 'markdown' | 'live'
+  title: string
+  citation: string
+  pinned: boolean
+  chars: number
+  score?: number | null
+  text?: string
+}
+
+export interface KbStats {
+  chunks: number
+  pinned: number
+  terms: number
+  avg_chunk_tokens: number
+  sources: Record<string, number>
+  built_at: number
+  retrieval: string
+}
+
+export interface KbSearch {
+  query: string
+  count: number
+  results: KbChunk[]
 }

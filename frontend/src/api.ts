@@ -3,6 +3,8 @@ import type {
   EquivResult,
   GraphResult,
   Health,
+  KbSearch,
+  KbStats,
   Progressive,
   QoRReport,
   Reflection,
@@ -124,4 +126,10 @@ export const api = {
   },
 
   schematic: () => request<Schematic>('/schematic'),
+
+  kbStats: () => request<KbStats>('/kb/stats'),
+
+  /** The same retrieval path /chat uses, so the ranking can be inspected. */
+  kbSearch: (q: string, withText = true) =>
+    request<KbSearch>(`/kb/search?q=${encodeURIComponent(q)}&limit=12&text=${withText}`),
 }

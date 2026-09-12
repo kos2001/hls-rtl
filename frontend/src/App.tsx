@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { Console } from './Console'
+import { KnowledgePane } from './Knowledge'
 import { Navigator } from './Navigator'
 import type { NavSelection } from './Navigator'
 import { Properties } from './Properties'
@@ -25,7 +26,8 @@ import type {
  * greppable record of the session — the way an engineer actually debugs a run.
  */
 
-type View = 'scoreboard' | 'waveform' | 'schematic' | 'quality' | 'signoff' | 'flows' | 'assistant'
+type View = 'scoreboard' | 'waveform' | 'schematic' | 'quality' | 'signoff' | 'flows'
+  | 'knowledge' | 'assistant'
 
 const VIEWS: { id: View; label: string }[] = [
   { id: 'scoreboard', label: 'Scoreboard' },
@@ -34,6 +36,7 @@ const VIEWS: { id: View; label: string }[] = [
   { id: 'quality', label: 'Quality' },
   { id: 'signoff', label: 'Sign-off' },
   { id: 'flows', label: 'Flows' },
+  { id: 'knowledge', label: 'Knowledge' },
   { id: 'assistant', label: 'Assistant' },
 ]
 
@@ -416,6 +419,7 @@ export default function App() {
   const [data, setData] = useState<VerificationResults | null>(null)
   const [qor, setQor] = useState<QoRReport | null>(null)
   const [skills, setSkills] = useState<SkillReport | null>(null)
+  const [kb, setKb] = useState<{ chunks: number } | null>(null)
   const [telemetry, setTelemetry] = useState<Telemetry | null>(null)
   const [signoff, setSignoff] = useState<SignoffReport | null>(null)
   const [sel, setSel] = useState<NavSelection | null>(null)
@@ -471,6 +475,10 @@ export default function App() {
         for (const m of s.missing) log.warn('SKILLS', `${m}: not installed in the serving profile — agent cannot load it`)
       }).catch(() => setSkills(null)),
       api.telemetry('signoff').then(setTelemetry).catch(() => {}),
+      api.kbStats().then((k) => {
+        setKb(k)
+        log.info('KB', `${k.chunks} passages indexed (${k.pinned} pinned), ${k.terms} terms`)
+      }).catch(() => setKb(null)),
     ])
     setUpdatedAt(new Date())
     setBusy(null)
@@ -542,6 +550,7 @@ export default function App() {
           <MenuItem onClick={() => setView('waveform')}>Traced simulation…</MenuItem>
           <MenuItem onClick={() => setView('schematic')}>Elaborate schematic</MenuItem>
           <MenuItem onClick={() => setView('flows')}>Flows (LEC, reflection)…</MenuItem>
+          <MenuItem onClick={() => setView('knowledge')}>Knowledge retrieval…</MenuItem>
         </Menu>
         <Menu label="Help">
           <MenuItem onClick={() => {
@@ -633,6 +642,7 @@ export default function App() {
                            busy={busy === 'signoff'} onRun={runSignoff} />
             )}
             {view === 'flows' && <Flows />}
+            {view === 'knowledge' && <KnowledgePane />}
             {view === 'assistant' && (
               <div className="view-scroll">
                 <PlanTab gatewayReady={gatewayReady} />
@@ -668,6 +678,7 @@ export default function App() {
         </span>
         <span className="sb-item">QoR: <b>{qor ? `${qor.score} (${qor.grade})` : '—'}</b></span>
         <span className="sb-item">profile: <b>{skills?.profile ?? '—'}</b></span>
+        <span className="sb-item">kb: <b>{kb ? `${kb.chunks} psg` : '—'}</b></span>
         <span className="sb-item">model: <b>{health?.model ?? '—'}</b></span>
         <span className="sb-spacer" />
         {busy && <span className="sb-item sb-busy"><i className="spinner" />{busy}…</span>}
