@@ -1,0 +1,51 @@
+# SymbiYosys tasks for the gamma control path.
+#
+#   bmc    — bounded check to `depth`. This is the one wired into the gate.
+#   cover  — reachability, so a passing bmc cannot be vacuous.
+#   deep   — the same check, further out; for a nightly run.
+#   prove  — k-induction. Runs, but does NOT currently close; see below.
+#
+# Depth: the depth-7 occupancy mutant is caught at step 6, and the clean design
+# passes depth 14 in ~5s. 16 leaves margin while staying inside a few seconds —
+# runtime grows sharply with depth (24 takes ~6m43s), so the gate uses 16 and
+# `deep` exists for when minutes are acceptable.
+#
+# On `prove`: the base case passes, induction does not. k-induction starts from
+# an arbitrary state satisfying the assertions, and the reference occupancy
+# counter in gamma_props.sv can start out of step with the DUT's internal
+# counter in a way no reachable execution allows. Closing it needs an invariant
+# linking the two — which means naming a signal inside the DUT, and yosys does
+# not support hierarchical references (it silently declares an undriven wire
+# instead). So the honest claim here is a BOUNDED proof, not an unbounded one.
+#
+# z3 is used because it is what this machine has; any SMT solver yosys supports
+# will do.
+
+[tasks]
+bmc
+cover
+deep
+prove
+
+[options]
+bmc:   mode bmc
+bmc:   depth 16
+cover: mode cover
+cover: depth 20
+deep:  mode bmc
+deep:  depth 24
+prove: mode prove
+prove: depth 16
+
+[engines]
+smtbmc z3
+
+[script]
+# sby flattens [files] into the task's src/ dir, so reference basenames here.
+read -formal -sv gamma_props.sv
+read -formal gamma.v
+prep -top gamma_props
+
+[files]
+gamma_props.sv
+../rtl/gamma.v

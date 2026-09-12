@@ -46,6 +46,7 @@ cd frontend && npm install && npm run dev
 
 | Tool | Needed for | Without it |
 |---|---|---|
+| **SymbiYosys** (`sby`) + a solver | formal stage of the gate | that stage reports **skip** — missing evidence, not a pass |
 | Python 3.10+, `cocotb<2.0` | the regression | nothing works |
 | **Verilator ≥ 5.0** | simulation, lint | Scoreboard falls back to the bundled snapshot |
 | **yosys** | QoR, schematic, LEC | those views report *unavailable*, not a failure |
@@ -185,8 +186,12 @@ converges on plausibility, so here the **oracle decides, not the model**.
 - **Evidence gaps** — ranked, deterministic, no gateway needed. This is the
   honest answer to "what should improve next" when everything already passes:
   the next step is rarely more RTL, it is closing a gap in evidence.
-- **Prove committed RTL** — runs the gate (lint → design → synthesize →
-  the real cocotb regression) against `rtl/gamma.v`. No LLM anywhere in it.
+- **Prove committed RTL** — runs the gate against `rtl/gamma.v`: lint → design →
+  synthesize → the real cocotb regression → **formal**. No LLM anywhere in it.
+  The formal stage exists because simulation has a measured blind spot: an
+  effective FIFO depth of 7 instead of 8 passes 13/13 patterns with 0.0%
+  throughput change, and `a_no_false_stall` rejects it in under a second.
+  A formal `skip` (no `sby`) does not block a verdict; a formal `fail` does.
 - **Run loop** — generates a candidate for your goal, gates it, and on rejection
   feeds the *exact* mismatch (pattern, pixel index, RTL value vs golden value)
   into the next attempt.

@@ -20,3 +20,10 @@ tb/dump.vcd
 # self-improvement loop candidates (regenerated; never source of truth)
 build/improve/
 rtl/gamma.v.bak-*
+
+# SymbiYosys task working directories
+formal/gamma_bmc/
+formal/gamma_cover/
+formal/gamma_deep/
+formal/gamma_prove/
+formal/gamma/
