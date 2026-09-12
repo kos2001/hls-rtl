@@ -233,6 +233,7 @@ when it proposes a change:
 | Reset clears control state | `test_reset_state` |
 | Runtime LUT reload | `test_lut_reload` |
 | Bit-exactness of all three models | SHA-256 frame hash per pattern |
+| No overflow, no false backpressure, no retraction | `formal/gamma_props.sv` (bounded, `sby -f formal/gamma.sby bmc`) |
 
 Pattern order in `tb/test_set.py` is a contract — `build/sc_out.txt` is consumed
 sequentially, so patterns may only be **appended**.
@@ -271,6 +272,11 @@ evidence. Do not infer them:
   LUT→FIFO path as the likely Fmax limiter on FPGA, but that is a hypothesis,
   not a measurement.
 - **X-propagation and reset-release behaviour.** See §4.3.
+- **Unbounded correctness of the handshake.** `formal/` proves the occupancy and
+  handshake invariants, but only to a bounded depth: k-induction's base case
+  passes and the induction step does not, because linking the reference counter
+  to the DUT's internal counter needs a hierarchical reference yosys does not
+  support. Traces longer than the bound are unproven.
 
 ---
 

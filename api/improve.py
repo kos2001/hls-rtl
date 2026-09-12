@@ -35,6 +35,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -50,6 +51,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 _TB = _ROOT / "tb"
 _RTL = _ROOT / "rtl" / "gamma.v"
 _WORK = _ROOT / "build" / "improve"
+_FORMAL = _ROOT / "formal"
 
 # "[edge_cases/env] RTL vs golden: OK (24 pixels, hash=c695...)"
 # "[edge_cases/env] RTL vs golden: MISMATCH at idx=18 got=[199, 0, 255] ref=[186, 0, 255] (4/24 pixels differ)"
@@ -100,25 +102,33 @@ class Proof:
         Requires patterns to actually have run — an empty result is "no
         evidence", never "equivalent".
         """
+        # `formal` may be `skip` (sby absent) without blocking a verdict, but a
+        # formal FAILURE is disqualifying: it means a control-path invariant is
+        # violated on some trace the test set simply never produced.
         return (bool(self.patterns)
                 and all(p.ok for p in self.patterns)
-                and self.stages.get("simulate") == "pass")
+                and self.stages.get("simulate") == "pass"
+                and self.stages.get("formal") != "fail")
 
     #: What a PROVEN verdict does and does not license you to say. Carried on
     #: the object so the UI, the agent and the loop all repeat the same claim.
     PROVES = ("output values and their ordering are bit-exact against the Python "
-              "golden model, for the patterns and backpressure profiles that ran")
+              "golden model for the patterns and backpressure profiles that ran, "
+              "AND — when the formal stage ran — that the handshake invariants "
+              "hold on every trace up to the bounded depth: no overflow, no "
+              "false backpressure, no retraction, output valid exactly when a "
+              "pixel is outstanding")
     DOES_NOT_PROVE = (
-        "timing beyond ordering (a one-entry FIFO occupancy error is measurably "
-        "invisible here — 0.0% throughput change), X-propagation or "
-        "reset-initialization (Verilator is 2-state), inputs outside the test "
-        "set, or anything about Fmax, area or power")
+        "behaviour beyond the formal bound (the induction case does not close, "
+        "so this is a bounded proof, not an unbounded one), X-propagation or "
+        "reset-initialization (Verilator is 2-state), datapath values for inputs "
+        "outside the test set, or anything about Fmax, area or power")
 
     @property
     def verdict(self) -> str:
         if self.equivalent:
             return "PROVEN"
-        if self.stages.get("simulate") == "fail":
+        if self.stages.get("simulate") == "fail" or self.stages.get("formal") == "fail":
             return "REJECTED"
         return "INCONCLUSIVE"
 
@@ -195,9 +205,58 @@ def _parse_patterns(log: str) -> List[PatternOutcome]:
     return list(by_name.values())
 
 
+_SBY_DONE_RE = re.compile(r"DONE \((?P<status>[A-Z]+)")
+_SBY_FAIL_RE = re.compile(r"failed assertion (?P<name>[\w.]+)")
+
+
+def _run_formal(candidate: Path, timeout: int) -> Tuple[str, str]:
+    """SymbiYosys over the control-path invariants, against the CANDIDATE.
+
+    Closes a measured gap: a one-entry occupancy error passes the whole
+    scoreboard with no throughput change, and `a_no_false_stall` catches it in
+    under a second. `cover` runs too — a bounded proof that passes over
+    unreachable states proves nothing, so reachability is part of the result,
+    not a footnote.
+
+    Bounded, not unbounded: see the note in formal/gamma.sby about induction.
+    """
+    if shutil.which("sby") is None:
+        return ("skip", "sby not available")
+    if not (_FORMAL / "gamma.sby").exists():
+        return ("skip", "formal/gamma.sby not found")
+
+    with tempfile.TemporaryDirectory() as td:
+        work = Path(td)
+        shutil.copy2(_FORMAL / "gamma_props.sv", work / "gamma_props.sv")
+        shutil.copy2(candidate, work / "gamma.v")
+        sby = (_FORMAL / "gamma.sby").read_text().replace("../rtl/gamma.v", "gamma.v")
+        (work / "gamma.sby").write_text(sby)
+
+        results, failures = {}, []
+        for task in ("bmc", "cover"):
+            try:
+                proc = subprocess.run(
+                    ["sby", "-f", "gamma.sby", task], cwd=str(work),
+                    env=sim_env(), capture_output=True, text=True, timeout=timeout)
+            except subprocess.TimeoutExpired:
+                return ("fail", f"{task} timed out after {timeout}s")
+            except OSError as exc:
+                return ("skip", str(exc))
+            out = proc.stdout + proc.stderr
+            m = _SBY_DONE_RE.search(out)
+            results[task] = m["status"] if m else "ERROR"
+            failures += [f"{task}:{f}" for f in set(_SBY_FAIL_RE.findall(out))]
+
+        ok = all(v == "PASS" for v in results.values())
+        detail = ", ".join(f"{k}={v}" for k, v in results.items())
+        if failures:
+            detail += " — " + "; ".join(sorted(failures)[:4])
+        return ("pass" if ok else "fail", detail)
+
+
 def prove(candidate_verilog: Optional[str] = None, *, name: str = "",
           timeout: int = 600, bp_profile: str = "single",
-          run_regression: bool = True) -> Proof:
+          run_regression: bool = True, run_formal: bool = True) -> Proof:
     """Gate a candidate: static checks, then the real scoreboard against it.
 
     `candidate_verilog=None` proves the project RTL itself — the baseline, and a
@@ -268,6 +327,16 @@ def prove(candidate_verilog: Optional[str] = None, *, name: str = "",
             proof.stages["simulate"] = "fail"
             proof.details["simulate"] = "could not parse cocotb results"
 
+    # 5. formal. Independent of the scoreboard on purpose: it is here precisely
+    #    to cover what simulation provably cannot see.
+    if run_formal and not blocked:
+        st, detail = _run_formal(path, timeout=timeout)
+        proof.stages["formal"] = st
+        proof.details["formal"] = detail
+    elif run_formal:
+        proof.stages["formal"] = "skip"
+        proof.details["formal"] = "not run — an earlier gating stage failed"
+
     proof.elapsed_s = time.time() - t0
     return proof
 
@@ -305,13 +374,14 @@ _GAP_CHECKS = (
      "The regression runs under Verilator, which is 2-state. X-propagation and "
      "reset-initialization bugs cannot be detected by any current evidence.",
      "make -C tb SIM=icarus"),
-    ("formal invariants", "high",
-     "MEASURED gate boundary: changing in_ready to `count != CNT_MAX-1` (an "
-     "effective depth of 7) passes 13/13 patterns with 0.0% throughput change "
-     "on every profile. The scoreboard proves values and ordering, so a "
-     "one-entry occupancy error is invisible to it. Formal closes exactly this.",
-     "write a .sby task asserting count <= FIFO_DEPTH and the in_ready "
-     "derivation, then: sby -f gamma.sby"),
+    ("unbounded formal proof", "medium",
+     "formal/ covers the handshake invariants, but only to a BOUNDED depth: "
+     "k-induction's base case passes and the induction step does not, because "
+     "linking the reference occupancy counter to the DUT's internal counter "
+     "needs a hierarchical reference yosys does not support. Traces longer than "
+     "the bound are unproven.",
+     "strengthen the invariant (e.g. expose occupancy as a port, or use a "
+     "toolchain with hierarchical access), then: sby -f formal/gamma.sby prove"),
     ("mutation coverage", "medium",
      "Nothing measures whether the testbench would CATCH a bug. Pass rate is "
      "not sensitivity.",
@@ -341,13 +411,14 @@ def audit() -> dict:
     have_sc = (_ROOT / "build" / "sc_out.txt").exists()
     have_icarus = shutil.which("iverilog") is not None
     have_sby = shutil.which("sby") is not None
+    have_formal = (_FORMAL / "gamma.sby").exists()
     have_verible = shutil.which("verible-verilog-lint") is not None
     have_mcy = shutil.which("mcy") is not None
 
     satisfied = {"systemc rung": have_sc}
     tooling = {
         "4-state simulation": have_icarus,
-        "formal invariants": have_sby,
+        "unbounded formal proof": have_sby and have_formal,
         "mutation coverage": have_mcy,
         "style lint": have_verible,
     }
