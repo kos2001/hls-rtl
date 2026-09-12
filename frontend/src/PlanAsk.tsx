@@ -3,7 +3,8 @@ import { api } from './api'
 import { renderMD } from './md'
 import { log, traced } from './log'
 import { Busy, useElapsed } from './ui'
-import type { SkillReport } from './types'
+import { Citations } from './Knowledge'
+import type { KbChunk, SkillReport } from './types'
 
 const AGENT_HINT = 'agent loop can take ~30-60s'
 
@@ -156,6 +157,8 @@ export function PlanTab({ gatewayReady }: { gatewayReady: boolean }) {
 interface ChatMsg {
   role: 'user' | 'assistant'
   content: string
+  /** Grounding passages for this reply, so the answer can be checked. */
+  citations?: KbChunk[]
 }
 
 export function ChatPanel({ gatewayReady, skills }:
@@ -185,7 +188,8 @@ export function ChatPanel({ gatewayReady, skills }:
       () => api.chat(q, session),
       (v) => ({ status: 'pass', extra: `${v.content.length} chars` }),
     ).catch(() => null)
-    if (res) setHistory((h) => [...h, { role: 'assistant', content: res.content }])
+    if (res) setHistory((h) => [...h,
+      { role: 'assistant', content: res.content, citations: res.citations }])
     else setError('gateway call failed — see the transcript for the error')
     setBusy(false)
   }
@@ -202,6 +206,8 @@ export function ChatPanel({ gatewayReady, skills }:
         )}
       </div>
       <p className="muted small">
+        Answers are grounded in the retrieved knowledge base (see the Knowledge tab);
+        every reply lists the passages behind it.{' '}
         RTL-assistant via the Hermes Gateway
         {skills?.active.length
           ? <>, grounded in {skills.active.length} loaded skill
@@ -221,6 +227,7 @@ export function ChatPanel({ gatewayReady, skills }:
               <div className="bubble-body">
                 {m.role === 'assistant' ? renderMD(m.content) : m.content}
               </div>
+              {m.citations?.length ? <Citations items={m.citations} /> : null}
             </div>
           ))}
           {busy && (

@@ -37,6 +37,7 @@ from gen_dashboard_data import build_results  # noqa: E402
 from . import oracle as oracle_mod  # noqa: E402
 from . import rtl_segments, reflection, equiv as equiv_mod, agents  # noqa: E402
 from . import skills as skills_mod, waveform as waveform_mod, schematic as schematic_mod  # noqa: E402
+from . import knowledge as kb  # noqa: E402
 from . import graph_rag  # noqa: E402
 
 app = FastAPI(title="Gamma Verification API", version="0.1.0")
@@ -85,6 +86,10 @@ class ChatIn(BaseModel):
 class ChatOut(BaseModel):
     content: str
     user_id: str
+    # Which knowledge-base passages were injected as grounding for this answer.
+    # Surfaced so a reader can check the answer against its sources instead of
+    # taking the agent's word for it.
+    citations: List[Dict[str, Any]] = []
 
 
 _RTL_ASSISTANT_INSTRUCTIONS = (
@@ -93,45 +98,27 @@ _RTL_ASSISTANT_INSTRUCTIONS = (
     "(Python golden / SystemC / Verilog RTL) bit-exact scoreboard. Answer "
     "concisely and technically about the design, its handshake/latency contract, "
     "the test set, and verification results. Answer in the same language the "
-    "user writes in (Korean question -> Korean answer)."
+    "user writes in (Korean question -> Korean answer). "
+    "Ground every factual claim about this design in the DESIGN KNOWLEDGE BASE "
+    "passages below and cite the [path:lines] label you relied on. If the "
+    "knowledge base does not cover something, say so plainly instead of "
+    "inferring it — a missing passage is not permission to guess."
 )
 
 
-def _design_digest(max_chars: int = 1800) -> str:
-    """Live digest of the CURRENT design state, injected per request so agent
-    answers are grounded in today's RTL rather than stale session memory
-    (the gateway's X-Hermes-Session-Id opt-in loads prior transcripts)."""
-    parts = ["\n\n=== CURRENT DESIGN STATE (authoritative, read just now) ===",
-             "If session memory conflicts with the below, the below wins."]
-    # Highest-value facts first — the digest is length-capped.
-    try:
-        rtl = (_ROOT / "rtl" / "gamma.v").read_text()
-        params = [l.strip() for l in rtl.splitlines() if "parameter integer" in l]
-        assigns = [l.strip() for l in rtl.splitlines()
-                   if l.strip().startswith("assign in_ready")
-                   or l.strip().startswith("assign out_valid")]
-        parts.append("parameters: " + " | ".join(params))
-        parts.append("handshake: " + " | ".join(assigns))
-    except OSError:
-        parts.append("(rtl/gamma.v unreadable)")
-        rtl = ""
-    try:
-        res = json.loads((_ROOT / "frontend" / "public" / "results.json").read_text())
-        s = res["summary"]
-        parts.append(f"verification: {s['passed']}/{s['total_patterns']} patterns pass, "
-                     f"{s['total_pixels']} pixels bit-exact")
-    except Exception:
-        pass
-    if rtl:
-        header = []
-        for line in rtl.splitlines():
-            if line.startswith("//"):
-                header.append(line)
-            elif header:
-                break
-        parts.append("rtl/gamma.v contract header:\n" + "\n".join(header[:16]))
-    digest = "\n".join(parts)
-    return digest[:max_chars]
+def _design_digest(query: str = "", max_chars: int = 9000):
+    """Grounding context for one request, retrieved for THIS question.
+
+    This used to be a fixed 1800-char digest — the same parameters and pass
+    count for every question. That grounds "what is in_ready" and nothing else;
+    anything about backpressure, the SystemC mirror, or why a pattern exists fell
+    back on session memory. `api/knowledge.py` now retrieves the passages that
+    match the question, on top of pinned chunks (module contract, current
+    pass/fail) that are context for everything.
+
+    Returns (context_block, citations).
+    """
+    return kb.context_for(query, budget=max_chars)
 
 
 # ---- Routes ----
@@ -277,7 +264,10 @@ async def plan_route(req: PlanIn) -> Dict[str, Any]:
         raise HTTPException(503, "Hermes Gateway credentials missing (set HERMES_GATEWAY_API_KEY)")
     prompt = f"uArch document (existing + changed):\n{req.uarch}\n\nAlgorithm (Python):\n{req.algorithm}"
     planner = agents.build_planner()
-    planner.instructions += _design_digest()
+    # The plan's own inputs are the query: retrieve against the uArch text so a
+    # change to the FIFO pulls in the FIFO logic, not a generic digest.
+    ctx, citations = _design_digest(f"{req.uarch}\n{req.algorithm}")
+    planner.instructions += ctx
     try:
         # Fresh session per plan request: plans are self-contained and must not
         # inherit stale design facts from earlier transcripts.
@@ -285,7 +275,7 @@ async def plan_route(req: PlanIn) -> Dict[str, Any]:
                                        session_id=uuid.uuid4().hex)
     except RuntimeError as exc:
         raise HTTPException(502, str(exc))
-    return {"plan": resp.content}
+    return {"plan": resp.content, "citations": citations}
 
 
 # ---- #5 adaptive reflection (deterministic; LLM-free) ----
@@ -347,6 +337,34 @@ def graph_query(q: str, budget: int = 2000, dfs: bool = False) -> Dict[str, Any]
     return graph_rag.query(q, budget=budget, dfs=dfs)
 
 
+# ---- Knowledge base (retrieval grounding) ----
+@app.get("/kb/stats")
+def kb_stats() -> Dict[str, Any]:
+    """Index size and composition. The index rebuilds automatically when a
+    source file's mtime changes, so this also shows how fresh it is."""
+    return kb.stats()
+
+
+@app.get("/kb/search")
+def kb_search(q: str, limit: int = 8, text: bool = False) -> Dict[str, Any]:
+    """What the agent would be given as grounding for `q` — the same retrieval
+    path /chat uses, exposed so the ranking can be inspected directly."""
+    hits = kb.search(q, limit=limit)
+    return {
+        "query": q,
+        "count": len(hits),
+        "results": [{**r.chunk.to_dict(include_text=text), "score": r.score}
+                    for r in hits],
+    }
+
+
+@app.get("/kb/context")
+def kb_context(q: str, budget: int = 9000) -> Dict[str, Any]:
+    """The exact grounding block injected for `q`, for debugging prompts."""
+    block, citations = kb.context_for(q, budget=budget)
+    return {"query": q, "chars": len(block), "citations": citations, "context": block}
+
+
 # ---- Hermes skills (what the agent can actually load) ----
 @app.get("/skills")
 def skills_route(refresh: bool = False) -> Dict[str, Any]:
@@ -406,11 +424,12 @@ async def chat(req: ChatIn) -> ChatOut:
         raise HTTPException(
             503, "Hermes Gateway credentials missing (set HERMES_GATEWAY_API_KEY)"
         )
+    ctx, citations = _design_digest(req.message)
     gw = HermesGateway(
         base_url=s.hermes_gateway_base_url,
         api_key=s.hermes_gateway_api_key,
         model=s.hermes_gateway_model,
-        instructions=agents.apply_eda_skills(_RTL_ASSISTANT_INSTRUCTIONS) + _design_digest(),
+        instructions=agents.apply_eda_skills(_RTL_ASSISTANT_INSTRUCTIONS) + ctx,
         timeout=s.hermes_gateway_timeout,
     )
     try:
@@ -418,7 +437,7 @@ async def chat(req: ChatIn) -> ChatOut:
                                   session_id=req.session)
     except RuntimeError as exc:
         raise HTTPException(502, str(exc))
-    return ChatOut(content=resp.content, user_id=req.user_id)
+    return ChatOut(content=resp.content, user_id=req.user_id, citations=citations)
 
 
 # Serve the built SPA when present (production single-container mode).

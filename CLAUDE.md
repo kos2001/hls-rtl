@@ -90,7 +90,8 @@ built container):
 - `GET /skills` — which agent skills the gateway's **serving profile** actually has, vs. what this project wants (`api/skills.py`). The gateway serves one profile; naming a skill it lacks is a silent no-op, so the directive is built from live discovery, never a hard-coded list. Source of truth is `skills/`; install with `scripts/sync_hermes_skills.py`.
 - `GET /waveform`, `GET /waveform/status`, `POST /waveform/run` — VCD extraction for the waveform viewer (`api/waveform.py`). `tb/dump.vcd` comes from the traced regression (`make -C tb WAVES=1`, ~30% slower); elaboration parameters are listed separately rather than plotted.
 - `GET /schematic` — layered RTL netlist graph from `yosys proc + opt_clean` (`api/schematic.py`). No graphviz dependency: the browser draws it. Cells carry their source line for schematic→RTL cross-probing.
-- `POST /chat` — RTL-assistant routed through the **Hermes Gateway** (`api/hermes_engine.py`, an OpenAI-compatible `/v1/chat/completions` agent server). Returns **503** until `HERMES_GATEWAY_API_KEY` is set in `.env`; the gateway runs separately (default `:8643`). Config in `api/config.py`.
+- `GET /kb/stats`, `/kb/search?q=`, `/kb/context?q=` — the retrieval knowledge base (`api/knowledge.py`) that grounds `/chat` and `/plan`. Chunks are semantic units (an always-block, a function, a doc section) over `rtl/ golden/ systemc/ tb/` plus the markdown docs and the live results; retrieval is **BM25 lexical, deliberately not embeddings** — the queries are identifiers (`in_ready`, `FIFO_DEPTH`) that vector similarity blurs. Korean queries are bridged by a domain glossary (`KO_TERMS`). Pinned chunks (module contract, port list, live pass/fail) are always injected; the rest is retrieved per question. The index rebuilds on source mtime change.
+- `POST /chat` — RTL-assistant routed through the **Hermes Gateway** (`api/hermes_engine.py`, an OpenAI-compatible `/v1/chat/completions` agent server). Returns **503** until `HERMES_GATEWAY_API_KEY` is set in `.env`; the gateway runs separately (default `:8643`, the `rtlgateway` profile, which sets `model_name: hermes-agent`). Config in `api/config.py`. The response carries the `citations` that grounded it.
 
 `frontend/` is React 19 + Vite 7 + TypeScript; data adapter in `src/api.ts`
 falls back to bundled `public/results.json` when the backend is unreachable.
@@ -104,7 +105,9 @@ Every flow routes through `src/log.ts::traced()`, so the transcript is a complet
 severity-tagged record of the session — the format is specified by the
 `eda-transcript-conventions` skill, which means agent output and tool output read
 alike. Views: Scoreboard, Waveform (`src/Waveform.tsx`, canvas), Schematic
-(`src/Schematic.tsx`, SVG), Quality, Sign-off, Flows, Assistant.
+(`src/Schematic.tsx`, SVG), Quality, Sign-off, Flows, Knowledge (`src/Knowledge.tsx`
+— the same retrieval the agent gets, with scores, so a bad answer can be traced to
+retrieval vs. the model), Assistant.
 
 ## Conventions
 
