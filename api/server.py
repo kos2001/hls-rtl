@@ -37,7 +37,7 @@ from gen_dashboard_data import build_results  # noqa: E402
 from . import oracle as oracle_mod  # noqa: E402
 from . import rtl_segments, reflection, equiv as equiv_mod, agents  # noqa: E402
 from . import skills as skills_mod, waveform as waveform_mod, schematic as schematic_mod  # noqa: E402
-from . import knowledge as kb  # noqa: E402
+from . import knowledge as kb, improve as improve_mod  # noqa: E402
 from . import graph_rag  # noqa: E402
 
 app = FastAPI(title="Gamma Verification API", version="0.1.0")
@@ -340,6 +340,58 @@ def graph_explain(node: str, budget: int = 1500) -> Dict[str, Any]:
 def graph_query(q: str, budget: int = 2000, dfs: bool = False) -> Dict[str, Any]:
     """Traverse the repo knowledge graph for a concept/relationship."""
     return graph_rag.query(q, budget=budget, dfs=dfs)
+
+
+# ---- Self-improvement loop ----
+class ProveIn(BaseModel):
+    code: Optional[str] = None      # None -> prove the committed rtl/gamma.v
+    bp_profile: str = "split"
+    run_regression: bool = True
+
+
+@app.post("/improve/prove")
+def improve_prove(req: ProveIn) -> Dict[str, Any]:
+    """Gate a candidate against the oracle: lint, design rules, synthesis, then
+    the real cocotb regression run against THIS code. No LLM. `PROVEN` means
+    bit-exact values and ordering — see `proves` / `does_not_prove`."""
+    return improve_mod.prove(req.code, bp_profile=req.bp_profile,
+                             run_regression=req.run_regression).to_dict()
+
+
+@app.get("/improve/audit")
+def improve_audit() -> Dict[str, Any]:
+    """Ranked gaps in EVIDENCE, not known defects. Deterministic, no gateway."""
+    return improve_mod.audit()
+
+
+class LoopIn(BaseModel):
+    goal: str
+    max_iters: int = 3
+    bp_profile: str = "single"
+    user_id: str = "default-user"
+
+
+@app.post("/improve/loop")
+async def improve_loop(req: LoopIn) -> Dict[str, Any]:
+    """Propose → prove → reflect, bounded, with the oracle as the only judge.
+    Returns every attempt including failures. Nothing is written to rtl/."""
+    return await improve_mod.run_loop(req.goal, max_iters=req.max_iters,
+                                      bp_profile=req.bp_profile,
+                                      user_id=req.user_id)
+
+
+class ApplyIn(BaseModel):
+    candidate_path: str
+
+
+@app.post("/improve/apply")
+def improve_apply(req: ApplyIn) -> Dict[str, Any]:
+    """Promote a proven candidate to rtl/gamma.v. Re-proves it first and refuses
+    if it is not equivalent; backs up the current RTL."""
+    try:
+        return improve_mod.apply_candidate(req.candidate_path)
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(400, str(exc))
 
 
 # ---- Project documents ----

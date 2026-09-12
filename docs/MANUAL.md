@@ -175,6 +175,37 @@ The four analyses that are not part of the ladder:
   check.
 - **Graph RAG** — knowledge-graph neighbourhood of a symbol.
 
+### Improve
+The self-improvement loop: **propose → prove → reflect → retry**, bounded.
+
+It leads with what a `PROVEN` verdict does and does not mean, because that is the
+only thing keeping the loop honest — an agent that edits RTL and grades itself
+converges on plausibility, so here the **oracle decides, not the model**.
+
+- **Evidence gaps** — ranked, deterministic, no gateway needed. This is the
+  honest answer to "what should improve next" when everything already passes:
+  the next step is rarely more RTL, it is closing a gap in evidence.
+- **Prove committed RTL** — runs the gate (lint → design → synthesize →
+  the real cocotb regression) against `rtl/gamma.v`. No LLM anywhere in it.
+- **Run loop** — generates a candidate for your goal, gates it, and on rejection
+  feeds the *exact* mismatch (pattern, pixel index, RTL value vs golden value)
+  into the next attempt.
+
+Outcomes are deliberately not a boolean:
+
+| Outcome | Meaning |
+|---|---|
+| `PROVEN_CHANGE` | a **changed** RTL is bit-exact against the golden model |
+| `ORACLE_CONFLICT` | every attempt that implemented the goal was rejected on values — the goal contradicts the golden model |
+| `NO_CHANGE` | it ended at the committed RTL; the goal was not implemented |
+| `EXHAUSTED` | budget spent with no proven candidate |
+
+`ORACLE_CONFLICT` matters: if the new behaviour is genuinely wanted, the **golden
+model must change first**. The RTL is never the place to redefine correctness.
+
+Nothing is written to `rtl/`. A proven candidate lands in `build/improve/` and
+**Apply** promotes it — re-proving it first, and backing up the current RTL.
+
 ### Knowledge
 What the agent is given as grounding, with the retrieval scores. Type a question
 and press **Retrieve**.
@@ -216,6 +247,10 @@ Schematic, click the cell; Properties gives you `rtl/gamma.v:<line>`.
 This is the Δ-propagation drill — three files must move together. See
 `docs/UARCH.md` §7. Then re-run sign-off: the hashes must be unchanged for a
 depth change (timing-only) and *will* change for a precision change.
+
+**Decide what to work on next.**
+Improve ▸ read the evidence gaps. They are ranked by how much they would change
+what the scoreboard actually proves.
 
 **Check what the agent knows about something.**
 Knowledge ▸ type the question ▸ Retrieve. If nothing matches, the agent would be

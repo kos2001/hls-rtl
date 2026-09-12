@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { api } from './api'
 import { Console } from './Console'
 import { HelpPane } from './Help'
+import { ImprovePane } from './Improve'
 import { KnowledgePane } from './Knowledge'
 import { Navigator } from './Navigator'
 import { Overview } from './Overview'
@@ -29,7 +30,7 @@ import type {
  */
 
 type View = 'overview' | 'scoreboard' | 'waveform' | 'schematic' | 'quality' | 'signoff'
-  | 'flows' | 'knowledge' | 'assistant' | 'help'
+  | 'flows' | 'improve' | 'knowledge' | 'assistant' | 'help'
 
 const VIEWS: { id: View; label: string }[] = [
   { id: 'overview', label: 'Overview' },
@@ -39,6 +40,7 @@ const VIEWS: { id: View; label: string }[] = [
   { id: 'quality', label: 'Quality' },
   { id: 'signoff', label: 'Sign-off' },
   { id: 'flows', label: 'Flows' },
+  { id: 'improve', label: 'Improve' },
   { id: 'knowledge', label: 'Knowledge' },
   { id: 'assistant', label: 'Assistant' },
   { id: 'help', label: 'Manual' },
@@ -560,6 +562,7 @@ export default function App() {
           <MenuItem onClick={() => setView('waveform')}>Traced simulation…</MenuItem>
           <MenuItem onClick={() => setView('schematic')}>Elaborate schematic</MenuItem>
           <MenuItem onClick={() => setView('flows')}>Flows (LEC, reflection)…</MenuItem>
+          <MenuItem onClick={() => setView('improve')}>Self-improvement loop…</MenuItem>
           <MenuItem onClick={() => setView('knowledge')}>Knowledge retrieval…</MenuItem>
         </Menu>
         <Menu label="Help">
@@ -658,6 +661,7 @@ export default function App() {
                            busy={busy === 'signoff'} onRun={runSignoff} />
             )}
             {view === 'flows' && <Flows />}
+            {view === 'improve' && <ImprovePane />}
             {view === 'knowledge' && <KnowledgePane />}
             {view === 'help' && <HelpPane />}
             {view === 'assistant' && (

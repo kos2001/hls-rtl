@@ -20,11 +20,13 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from . import rtl_qor
+from .config import sim_env
 from .telemetry import archive
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +50,8 @@ def _verdict(stages: List[Stage]) -> str:
     return "SIGNED_OFF"
 
 
+
+
 def _run_regression(timeout: int) -> Stage:
     """Run the cocotb 3-way scoreboard via tb/Makefile and parse the result."""
     if not rtl_qor.verilator_available():
@@ -55,7 +59,7 @@ def _run_regression(timeout: int) -> Stage:
     try:
         proc = subprocess.run(
             ["make", "-s"], cwd=str(_TB_DIR), capture_output=True, text=True,
-            timeout=timeout, env={**os.environ},
+            timeout=timeout, env=sim_env(),
         )
     except subprocess.TimeoutExpired:
         return Stage("simulate", "fail", True, f"regression timed out after {timeout}s")
