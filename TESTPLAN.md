@@ -128,6 +128,48 @@ fills during downstream stalls), `test_single_pixel_latency` /
 `test_full_rate_throughput` pass unchanged, all 13 patterns bit-exact. Cost:
 +177 flops (6169→6346, the FIFO storage + pointers).
 
+## Line coverage (`GET /coverage`)
+
+Verilator-instrumented run, annotated. **`never-executed` is the number that
+matters**; `partial` frequently reflects how Verilator attributes branch points
+to declaration lines, and the `translate_off` elaboration guards are exempt by
+source range — requiring them would mean the only route to 100% is to break the
+design.
+
+It found one genuinely unreached line: the `default:` arm of the `lut_ch`
+decode, i.e. the reserved `2'b11` encoding. The RTL documents "reserved encoding
+-> no write" as a contract and nothing checked it. `test_lut_reserved_encoding`
+now does, and it was verified against a decoder that aliases the reserved code
+onto channel R — caught, with the poison value visible in the failure.
+
+## Mutation coverage (automated — `api/mutate.py`)
+
+48 single-fault mutants over seven fault classes (relational, arithmetic,
+boolean, off-by-one, stuck-at, dropped-update, channel-cross), each run through
+the full sign-off gate. **100% caught**, no survivors:
+
+| caught by | count |
+|---|---|
+| simulate | 25 |
+| configs (`LUT_SYNC_READ=1`) | 10 |
+| lint | 9 |
+| formal | 2 |
+| synthesize | 1 |
+| 4-state (Icarus) | 1 |
+
+Every stage earns its place: `formal` and `4state` each catch faults nothing
+before them sees, and `configs` accounts for ten.
+
+Every survivor so far has been in the `LUT_SYNC_READ=1` generate branch, which
+the default elaboration never builds — first three of them, which the `configs`
+stage now covers by re-running the bit-exact comparison in that mode; then one
+more, an occupancy off-by-one that `configs` could not see because depth is
+timing-only and that stage compares values. The formal tasks now run in that
+configuration too (`prove_sync`), which closes it.
+
+Re-run after changing the RTL. A survivor is an edit that every check in this
+repository accepts.
+
 ## Mutation checks (done manually, 2026-06-12/13)
 
 - **Channel swap**: swapping `lut_r_mem`/`lut_b_mem` reads is caught by

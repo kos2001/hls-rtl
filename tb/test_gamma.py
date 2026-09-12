@@ -225,8 +225,16 @@ async def run_pattern(dut, pattern_name, frame, lut_r, lut_g, lut_b, bp, rng, sc
         dut._log.info(f"[{tag}] {diff_report('SC  vs golden', sc_slice, golden)}")
         dut._log.info(f"[{tag}] {diff_report('RTL vs SC    ', rtl_out, sc_slice)}")
         assert np.array_equal(sc_slice, golden), f"{tag}: SC vs golden mismatch"
+    elif SC_OUT_PATH.exists():
+        # Phase 2 passes no slice on purpose: the SystemC sim runs without
+        # backpressure, so there is nothing to compare a stalled run against.
+        # Saying "not found" here would be false, and this project treats a
+        # skip as missing evidence — the two cases must not read alike.
+        dut._log.info(f"[{tag}] SC compare not applicable (stall profile; the "
+                      f"SystemC reference is generated at full rate)")
     else:
-        dut._log.warning(f"[{tag}] SC dump not found at {SC_OUT_PATH}; skipping SC compare")
+        dut._log.warning(f"[{tag}] SC dump not found at {SC_OUT_PATH}; skipping "
+                         f"SC compare — build it with scripts/build_systemc.sh")
 
     assert np.array_equal(rtl_out, golden), f"{tag}: RTL vs golden mismatch"
 
@@ -400,3 +408,40 @@ async def test_lut_reload(dut):
     golden = apply_gamma(frame, lut_r, lut_g, lut_b).reshape(-1, 3)
     out, _ = await run_pattern_with_bp(dut, flat, bp, rng, timeout)
     assert np.array_equal(out, golden), "reloaded gamma LUT output mismatch"
+
+
+@cocotb.test()
+async def test_lut_reserved_encoding(dut):
+    """`lut_ch = 2'b11` is reserved and must not write any channel.
+
+    The RTL states this as a contract ("reserved encoding -> no write") and
+    nothing exercised it: the `default:` arm was the one line in the module that
+    line coverage reported as never reached. An unreached contract is a contract
+    nobody checks — a decoder that quietly aliased the reserved code onto a real
+    channel would corrupt a LUT and pass every other test here.
+    """
+    cocotb.start_soon(Clock(dut.clk, CLK_PERIOD_NS, units="ns").start())
+    await reset(dut)
+
+    identity = np.arange(256, dtype=np.uint16)
+    await load_lut(dut, identity, identity, identity)
+
+    # Write a value that is wrong for every channel, using the reserved code.
+    POISON = 0x5A
+    dut.lut_we.value = 1
+    dut.lut_ch.value = 3            # reserved
+    for addr in (0, 1, 128, 255):
+        dut.lut_addr.value = addr
+        dut.lut_wdata.value = POISON
+        await RisingEdge(dut.clk)
+    dut.lut_we.value = 0
+    await RisingEdge(dut.clk)
+
+    # Every LUT must be untouched, so the identity mapping still holds.
+    probe = np.array([[0, 0, 0], [1, 1, 1], [128, 128, 128], [255, 255, 255]],
+                     dtype=np.uint8)
+    rng = random.Random(11)
+    out, _ = await run_pattern_with_bp(dut, probe, BPProfile("no_bp"), rng, 1000)
+    assert np.array_equal(out, probe.astype(np.uint16)), (
+        f"reserved lut_ch=2'b11 wrote into a LUT: got {out.tolist()}, "
+        f"expected the identity mapping {probe.tolist()}")

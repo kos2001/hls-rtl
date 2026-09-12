@@ -1,20 +1,54 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { api } from './api'
+import { Console } from './Console'
+import { HelpPane } from './Help'
+import { LangContext, readStoredLang, storeLang, useLang, useT } from './i18n'
+import type { Lang } from './i18n'
+import { ImprovePane } from './Improve'
+import { KnowledgePane } from './Knowledge'
+import { Navigator } from './Navigator'
+import { Overview } from './Overview'
+import type { NavSelection } from './Navigator'
+import { Properties } from './Properties'
+import { SchematicPane } from './Schematic'
+import { Splitter, applySavedPanes, resetPanes } from './Splitter'
+import { WaveformPane } from './Waveform'
 import { ChatPanel, PlanTab } from './PlanAsk'
-import { Busy, Sparkline, useElapsed } from './ui'
+import { log, traced } from './log'
+import { Sparkline } from './ui'
 import type {
-  EquivResult,
-  Health,
-  PatternResult,
-  Progressive,
-  QoRReport,
-  Reflection,
-  SignoffReport,
-  Telemetry,
-  VerificationResults,
+  EquivResult, Health, PatternResult, Progressive, QoRReport, Reflection,
+  KbStats, SchematicNode, SignoffReport, SkillReport, Telemetry, VerificationResults,
 } from './types'
 
-// ---------- small shared bits ----------
+/**
+ * Workbench shell laid out like a commercial EDA tool (Cadence / Synopsys):
+ * menu bar, run toolbar, design navigator (left), tabbed work area (centre),
+ * properties inspector (right), tool transcript (bottom), status bar.
+ *
+ * The layout is the point, not decoration: every flow the backend exposes writes
+ * severity-tagged messages into one transcript, so the console is a complete,
+ * greppable record of the session — the way an engineer actually debugs a run.
+ */
+
+type View = 'overview' | 'scoreboard' | 'waveform' | 'schematic' | 'quality' | 'signoff'
+  | 'flows' | 'improve' | 'knowledge' | 'assistant' | 'help'
+
+const VIEWS: { id: View; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'scoreboard', label: 'Scoreboard' },
+  { id: 'waveform', label: 'Waveform' },
+  { id: 'schematic', label: 'Schematic' },
+  { id: 'quality', label: 'Quality' },
+  { id: 'signoff', label: 'Sign-off' },
+  { id: 'flows', label: 'Flows' },
+  { id: 'improve', label: 'Improve' },
+  { id: 'knowledge', label: 'Knowledge' },
+  { id: 'assistant', label: 'Assistant' },
+  { id: 'help', label: 'Manual' },
+]
+
+// ---------------- shared bits ----------------
 function Sha({ value }: { value: string | null }) {
   if (!value) return <span className="sha sha-none">— skipped</span>
   return <span className="sha" title={value}>{value.slice(0, 12)}…</span>
@@ -25,58 +59,82 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`badge badge-${cls}`}>{status}</span>
 }
 
-function HealthPill({ health }: { health: Health | null }) {
-  if (!health) return <span className="pill pill-warn">backend: connecting…</span>
+// ---------------- menu bar ----------------
+function Menu({ label, children }: { label: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const away = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', away)
+    return () => document.removeEventListener('mousedown', away)
+  }, [open])
   return (
-    <div className="pill-row">
-      <span className="pill pill-ok">api: online</span>
-      <span className={`pill ${health.verilator ? 'pill-ok' : 'pill-warn'}`}>
-        verilator: {health.verilator ? 'yes' : 'no'}
-      </span>
-      <span className={`pill ${health.has_key ? 'pill-ok' : 'pill-warn'}`}>
-        hermes: {health.has_key ? 'connected' : 'no key'}
-      </span>
-      <span className="pill pill-muted" title={health.gateway_base_url}>{health.model}</span>
+    <div className="menu" ref={ref}>
+      <button className={`menu-btn ${open ? 'menu-btn-open' : ''}`} onClick={() => setOpen(!open)}>
+        {label}
+      </button>
+      {open && <div className="menu-pop" onClick={() => setOpen(false)}>{children}</div>}
     </div>
   )
 }
 
-// ---------- Verify tab ----------
-function VerifyTab({ data, qor, telemetry, onSignoff }:
-  { data: VerificationResults; qor: QoRReport | null; telemetry: Telemetry | null; onSignoff: () => void }) {
+function MenuItem({ onClick, children, accel, disabled }:
+  { onClick: () => void; children: React.ReactNode; accel?: string; disabled?: boolean }) {
+  return (
+    <button className="menu-item" onClick={onClick} disabled={disabled}>
+      <span>{children}</span>
+      {accel && <span className="menu-accel">{accel}</span>}
+    </button>
+  )
+}
+
+// ---------------- scoreboard ----------------
+function Scoreboard({ data, onPick }:
+  { data: VerificationResults; onPick: (p: PatternResult) => void }) {
+  const t = useT()
   const allPass = data.summary.failed === 0
   return (
-    <>
-      <section className="cards">
-        <div className={`card stat ${allPass ? 'stat-ok' : 'stat-fail'}`}>
+    <div className="view-scroll">
+      <div className="stat-strip">
+        <div className={`stat ${allPass ? 'stat-ok' : 'stat-fail'}`}>
           <div className="stat-value">{allPass ? 'PASS' : 'FAIL'}</div>
-          <div className="stat-label">overall</div>
+          <div className="stat-label">{t('scoreboard verdict')}</div>
         </div>
-        <div className="card stat">
+        <div className="stat">
           <div className="stat-value">{data.summary.passed}/{data.summary.total_patterns}</div>
-          <div className="stat-label">patterns passing</div>
+          <div className="stat-label">{t('patterns bit-exact')}</div>
         </div>
-        <div className="card stat">
+        <div className="stat">
           <div className="stat-value">{data.summary.total_pixels.toLocaleString()}</div>
-          <div className="stat-label">pixels verified</div>
+          <div className="stat-label">{t('pixels compared')}</div>
         </div>
-        <div className="card stat">
-          <div className="stat-value">{data.design.module} · {data.design.pixel_w}b</div>
-          <div className="stat-label">LUT {data.design.lut_depth} · γ {Object.values(data.gammas).join('/')}</div>
+        <div className="stat">
+          <div className="stat-value">{data.design.pixel_w}b / {data.design.lut_depth}</div>
+          <div className="stat-label">{t('pixel width / LUT depth')}</div>
         </div>
-      </section>
+        <div className="stat">
+          <div className="stat-value">{Object.values(data.gammas).join(' · ')}</div>
+          <div className="stat-label">{t('γ per channel (R·G·B)')}</div>
+        </div>
+      </div>
 
-      <section className="card">
-        <h2>Patterns</h2>
+      <div className="panel">
+        <div className="panel-head"><h2>{t('Pattern Comparison Matrix')}</h2></div>
         <div className="table-wrap">
-          <table>
+          <table className="grid">
             <thead>
-              <tr><th>pattern</th><th className="num">pixels</th><th>status</th>
-                <th className="num">mism.</th><th>golden sha-256</th><th>rtl sha-256</th><th>systemc</th></tr>
+              <tr>
+                <th>{t('pattern')}</th><th className="num">{t('pixels')}</th><th>{t('status')}</th>
+                <th className="num">{t('mism.')}</th><th>golden sha-256</th>
+                <th>rtl sha-256</th><th>systemc sha-256</th>
+              </tr>
             </thead>
             <tbody>
-              {data.patterns.map((p: PatternResult) => (
-                <tr key={p.name}>
+              {data.patterns.map((p) => (
+                <tr key={p.name} onClick={() => onPick(p)} className="row-pick">
                   <td className="mono">{p.name}</td>
                   <td className="num">{p.pixels.toLocaleString()}</td>
                   <td><StatusBadge status={p.status} /></td>
@@ -89,279 +147,605 @@ function VerifyTab({ data, qor, telemetry, onSignoff }:
             </tbody>
           </table>
         </div>
-        <p className="muted small">{data.source}</p>
-      </section>
+        <p className="panel-foot muted small">{data.source}</p>
+      </div>
 
-      <QoRCard qor={qor} />
-      <SignoffPanel telemetry={telemetry} onRun={onSignoff} />
-    </>
+      <div className="panel panel-caveat">
+        <strong>Coverage caveat.</strong> The regression runs under Verilator, which is
+        2-state. These hashes prove value equality on the listed patterns; they do not
+        cover X-propagation or reset-initialization behaviour. Cross-check with Icarus
+        (<code>make -C tb SIM=icarus</code>) before claiming those are clean.
+      </div>
+    </div>
   )
 }
 
-function QoRCard({ qor }: { qor: QoRReport | null }) {
-  if (!qor) return null
+// ---------------- quality ----------------
+function Quality({ qor }: { qor: QoRReport | null }) {
+  const t = useT()
+  if (!qor) return <div className="pane-empty muted">{t('No QoR report — reload from the toolbar.')}</div>
   const m = qor.metrics
+  const errs = qor.checks.filter((c) => !c.ok && c.severity === 'error')
+  const warns = qor.checks.filter((c) => !c.ok && c.severity === 'warn')
   return (
-    <section className="card">
-      <h2>Design Quality (QoR)</h2>
-      <div className="qor-head">
-        <div className={`grade grade-${qor.grade}`}>{qor.grade}</div>
-        <div>
-          <div className="stat-value">{qor.score}/100</div>
-          <div className="muted small">lint: {qor.lint_tool} · {m.hdl_dialect} · {m.reset_kind}/{m.reset_active} reset</div>
-        </div>
-        <div className="qor-metrics">
-          <span className="pill pill-muted">flops {m.synth_flops ?? '—'}</span>
-          <span className="pill pill-muted">cells {m.synth_cells ?? '—'}</span>
-          <span className={`pill ${m.synth_latches ? 'pill-warn' : 'pill-ok'}`}>latches {m.synth_latches ?? '—'}</span>
-          <span className={`pill ${m.synthesizable ? 'pill-ok' : 'pill-warn'}`}>{m.synthesizable ? 'synthesizes' : 'unsynth'}</span>
-        </div>
-      </div>
-      <div className="checks">
-        {qor.checks.map((c) => (
-          <span key={c.id} className={`check ${c.ok ? 'check-ok' : `check-${c.severity}`}`} title={c.detail}>
-            {c.ok ? '✓' : '✕'} {c.id}
-          </span>
-        ))}
-      </div>
-    </section>
-  )
-}
-
-function SignoffPanel({ telemetry, onRun }: { telemetry: Telemetry | null; onRun: () => void }) {
-  const [report, setReport] = useState<SignoffReport | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const sec = useElapsed(busy)
-  async function run() {
-    setBusy(true); setError(null)
-    try { setReport(await api.signoff(true)); onRun() }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)) }
-    finally { setBusy(false) }
-  }
-  return (
-    <section className="card">
-      <div className="signoff-head">
-        <h2>Sign-off Ladder</h2>
-        <button onClick={run} disabled={busy}>{busy ? 'Running regression…' : 'Run sign-off'}</button>
-      </div>
-      <p className="muted small">
-        lint → design → synthesize → simulate (real 3-way cocotb regression).
-        {telemetry?.count ? ` ${telemetry.count} run(s), mean ${telemetry.mean_score}, last ${telemetry.last_score}.` : ''}
-      </p>
-      {telemetry?.history && telemetry.history.filter((h) => h.score != null).length >= 2 && (
-        <div className="trend-row">
-          <span className="muted small">score trend</span>
-          <Sparkline values={telemetry.history.map((h) => h.score).filter((s): s is number => s != null)} />
-        </div>
-      )}
-      {busy && <Busy label="Sign-off ladder running (includes full cocotb regression)" sec={sec} />}
-      {error && <pre className="chat-error">{error}</pre>}
-      {report && (
-        <>
-          <div className={`verdict verdict-${report.verdict}`}>{report.verdict} · {report.grade} ({report.score})</div>
-          <div className="ladder">
-            {report.stages.map((s) => (
-              <div key={s.name} className={`stage stage-${s.status}`}>
-                <span className="stage-name">{s.name}</span>
-                <span className="stage-status">{s.status}</span>
-                <span className="stage-detail muted small">{s.detail}</span>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-    </section>
-  )
-}
-
-// ---------- Tools tab ----------
-function ProgressiveCard() {
-  const [r, setR] = useState<Progressive | null>(null)
-  const [busy, setBusy] = useState(false)
-  const sec = useElapsed(busy)
-  async function run() { setBusy(true); try { setR(await api.progressive(true)) } finally { setBusy(false) } }
-  return (
-    <section className="card">
-      <div className="signoff-head">
-        <h2>Progressive-coding oracle (#1)</h2>
-        <button onClick={run} disabled={busy}>{busy ? 'Running…' : 'Run 3-way'}</button>
-      </div>
-      <p className="muted small">golden (Python) → SystemC → RTL, each proven bit-exact by the scoreboard.</p>
-      {busy && <Busy label="Running the cocotb 3-way regression" sec={sec} />}
-      {r && (
-        <div className="ladder">
-          {r.representations.map((rep) => (
-            <div key={rep.name} className={`stage stage-${rep.overall === 'pass' ? 'pass' : rep.overall === 'fail' ? 'fail' : 'skip'}`}>
-              <span className="stage-name">{rep.name}</span>
-              <span className="stage-status">{rep.overall}</span>
-              <span className="stage-detail muted small">{rep.role}</span>
+    <div className="view-scroll">
+      <div className="panel">
+        <div className="panel-head"><h2>{t('Design Quality (QoR)')}</h2></div>
+        <div className="qor-head">
+          <div className={`grade grade-${qor.grade}`}>{qor.grade}</div>
+          <div>
+            <div className="stat-value">{qor.score}<span className="muted">/100</span></div>
+            <div className="muted small">
+              lint: {qor.lint_tool} · {m.hdl_dialect} · {m.reset_kind}/{m.reset_active} reset
             </div>
-          ))}
+          </div>
+          <div className="qor-metrics">
+            <span className="pill pill-muted">flops {m.synth_flops ?? '—'}</span>
+            <span className="pill pill-muted">cells {m.synth_cells ?? '—'}</span>
+            <span className={`pill ${m.synth_latches ? 'pill-fail' : 'pill-ok'}`}>
+              latches {m.synth_latches ?? '—'}
+            </span>
+            <span className={`pill ${m.synthesizable ? 'pill-ok' : 'pill-warn'}`}>
+              {m.synthesizable ? 'synthesizes' : 'unsynth'}
+            </span>
+          </div>
         </div>
-      )}
-    </section>
-  )
-}
-
-function ReflectCard() {
-  const [r, setR] = useState<Reflection | null>(null)
-  const [busy, setBusy] = useState(false)
-  async function run() { setBusy(true); try { setR(await api.reflect()) } finally { setBusy(false) } }
-  return (
-    <section className="card">
-      <div className="signoff-head">
-        <h2>Adaptive reflection (#5)</h2>
-        <button onClick={run} disabled={busy}>{busy ? '…' : 'Diagnose'}</button>
       </div>
-      <p className="muted small">Deterministic error→root-stage tracer over the sign-off ladder.</p>
-      {r && (
-        <pre className="chat-answer">
-{r.ok ? `OK — no failing stage. ${r.skipped?.length ? 'skipped: ' + r.skipped.join(', ') : ''}`
-      : `root: ${r.root_stage} (${r.error_source})\n${r.diagnosis}\n→ ${r.action}`}
-        </pre>
-      )}
-    </section>
+
+      <div className="panel">
+        <div className="panel-head">
+          <h2>{t('Design Rule Checks')}</h2>
+          <span className="muted small">
+            {errs.length} error · {warns.length} warning · {qor.checks.length} total
+          </span>
+        </div>
+        <div className="table-wrap">
+          <table className="grid">
+            <thead><tr><th>{t('severity')}</th><th>{t('rule')}</th><th>{t('result')}</th><th>{t('detail')}</th></tr></thead>
+            <tbody>
+              {qor.checks.map((c) => (
+                <tr key={c.id}>
+                  <td><span className={`sev-tag sev-tag-${c.ok ? 'ok' : c.severity}`}>
+                    {c.ok ? 'PASS' : c.severity.toUpperCase()}</span></td>
+                  <td className="mono">{c.id}</td>
+                  <td>{c.ok ? '✓' : '✕'}</td>
+                  <td className="muted small">{c.detail}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   )
 }
 
-function EquivCard() {
-  const [out, setOut] = useState<EquivResult | null>(null)
-  const [busy, setBusy] = useState(false)
+// ---------------- sign-off ----------------
+function SignoffView({ report, telemetry, busy, onRun }: {
+  report: SignoffReport | null; telemetry: Telemetry | null
+  busy: boolean; onRun: () => void
+}) {
+  const t = useT()
+  const hist = (telemetry?.history ?? []).map((h) => h.score).filter((s): s is number => s != null)
+  return (
+    <div className="view-scroll">
+      <div className="panel">
+        <div className="panel-head">
+          <h2>{t('Sign-off Ladder')}</h2>
+          <button className="btn-run" onClick={onRun} disabled={busy}>
+            {busy ? `■ ${t('Running…')}` : `▶ ${t('Run sign-off')}`}
+          </button>
+        </div>
+        <p className="muted small">
+          lint → design → synthesize → simulate. The simulate stage runs the real
+          3-way cocotb regression, not a mock.
+          {telemetry?.count ? ` ${telemetry.count} run(s) archived, mean ${telemetry.mean_score}.` : ''}
+        </p>
+        {hist.length >= 2 && (
+          <div className="trend-row">
+            <span className="muted small">{t('score trend')}</span><Sparkline values={hist} />
+          </div>
+        )}
+        {report && (
+          <>
+            <div className={`verdict verdict-${report.verdict}`}>
+              VERDICT: {report.verdict} · {report.grade} ({report.score}/100)
+            </div>
+            <div className="table-wrap">
+              <table className="grid">
+                <thead><tr><th>{t('stage')}</th><th>{t('status')}</th><th>{t('gating')}</th><th>{t('detail')}</th></tr></thead>
+                <tbody>
+                  {report.stages.map((s) => (
+                    <tr key={s.name}>
+                      <td className="mono">{s.name}</td>
+                      <td><StatusBadge status={s.status} /></td>
+                      <td className="muted">{s.gating ? 'yes' : 'no'}</td>
+                      <td className="muted small">{s.detail}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+        {!report && !busy && (
+          <p className="muted small">No sign-off run in this session. Results archive to <code>runs/</code>.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ---------------- flows ----------------
+function Flows() {
+  const t = useT()
+  const [prog, setProg] = useState<Progressive | null>(null)
+  const [refl, setRefl] = useState<Reflection | null>(null)
+  const [equiv, setEquiv] = useState<EquivResult | null>(null)
   const [code, setCode] = useState('')
-  async function run() {
-    setBusy(true)
-    try { setOut(await api.equiv(code)) }
-    catch (e) { setOut({ equivalent: false, available: true, status: e instanceof Error ? e.message : 'error', issues: [] }) }
-    finally { setBusy(false) }
-  }
-  return (
-    <section className="card">
-      <div className="signoff-head">
-        <h2>Equivalence / LEC (#7)</h2>
-        <button onClick={run} disabled={busy}>{busy ? 'Proving…' : 'Check vs project RTL'}</button>
-      </div>
-      <p className="muted small">yosys sequential LEC (reduced params). Paste candidate RTL, or leave blank for self-equivalence.</p>
-      <textarea value={code} onChange={(e) => setCode(e.target.value)} rows={3} placeholder="candidate Verilog (blank = self-equiv)" />
-      {out && (
-        <div className={`verdict verdict-${out.equivalent ? 'SIGNED_OFF' : 'REJECTED'}`}>
-          {out.status}{out.equivalent ? ' ✓' : ' ✗'}
-        </div>
-      )}
-    </section>
-  )
-}
-
-function GraphCard() {
   const [node, setNode] = useState('apply_gamma')
-  const [out, setOut] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  async function run() {
-    setBusy(true)
-    try { const r = await api.graphExplain(node.trim()); setOut(r.available ? (r.result ?? '') : (r.error ?? 'unavailable')) }
-    finally { setBusy(false) }
+  const [graph, setGraph] = useState<string | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+
+  async function runProgressive() {
+    setBusy('prog')
+    const r = await traced(
+      { stage: 'progressive', tool: 'cocotb 3-way', design: 'gamma', cmd: 'make -C tb' },
+      () => api.progressive(true),
+      (v) => {
+        for (const rep of v.representations) {
+          const sev = rep.overall === 'pass' ? log.info : rep.overall === 'skip' ? log.warn : log.error
+          sev('EQUIV', `${rep.name} (${rep.role}): ${rep.overall}`)
+        }
+        return { status: v.bit_exact ? 'pass' : 'fail',
+                 extra: `${v.patterns_total} patterns` }
+      })
+    if (r) setProg(r)
+    setBusy(null)
   }
+
+  async function runReflect() {
+    setBusy('refl')
+    const r = await traced(
+      { stage: 'reflect', tool: 'reflection', design: 'gamma', cmd: 'reflect --from-analyzer' },
+      () => api.reflect(),
+      (v) => {
+        if (v.ok) log.info('REFLECT', 'no failing stage')
+        else log.error('REFLECT', `root stage ${v.root_stage} (${v.error_source}): ${v.diagnosis}`)
+        return { status: v.ok ? 'pass' : 'fail' }
+      })
+    if (r) setRefl(r)
+    setBusy(null)
+  }
+
+  async function runEquiv() {
+    setBusy('equiv')
+    const r = await traced(
+      { stage: 'lec', tool: 'yosys equiv_induct', design: 'gamma',
+        cmd: `equiv ${code.trim() ? 'candidate' : 'self'} vs rtl/gamma.v` },
+      () => api.equiv(code),
+      (v) => {
+        (v.equivalent ? log.info : log.error)('LEC', `${v.status}`)
+        for (const i of v.issues) log.warn('LEC', i)
+        return { status: v.equivalent ? 'pass' : 'fail' }
+      })
+    if (r) setEquiv(r)
+    setBusy(null)
+  }
+
+  async function runGraph() {
+    setBusy('graph')
+    const r = await traced(
+      { stage: 'graph-rag', tool: 'graphify', design: 'repo', cmd: `graph explain ${node}` },
+      () => api.graphExplain(node.trim()),
+      (v) => {
+        if (!v.available) log.warn('GRAPH', v.error ?? 'graph unavailable')
+        return { status: v.available ? 'pass' : 'skip' }
+      })
+    if (r) setGraph(r.available ? (r.result ?? '') : (r.error ?? 'unavailable'))
+    setBusy(null)
+  }
+
   return (
-    <section className="card">
-      <div className="signoff-head">
-        <h2>Graph RAG (#6)</h2>
-        <button onClick={run} disabled={busy || !node.trim()}>{busy ? '…' : 'Explain node'}</button>
+    <div className="view-scroll flows-grid">
+      <div className="panel">
+        <div className="panel-head">
+          <h2>{t('Progressive-coding oracle')}</h2>
+          <button className="btn-run" onClick={runProgressive} disabled={!!busy}>
+            {busy === 'prog' ? '■ Running…' : '▶ Run 3-way'}
+          </button>
+        </div>
+        <p className="muted small">golden (Python) → SystemC → RTL, each proven bit-exact by the scoreboard.</p>
+        {prog && (
+          <table className="grid">
+            <thead><tr><th>{t('representation')}</th><th>{t('role')}</th><th>{t('verdict')}</th></tr></thead>
+            <tbody>
+              {prog.representations.map((r) => (
+                <tr key={r.name}>
+                  <td className="mono">{r.name}</td>
+                  <td className="muted small">{r.role}</td>
+                  <td><StatusBadge status={r.overall} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
-      <p className="muted small">Knowledge-graph neighborhood (graphify) — grounding for generation/incremental.</p>
-      <input className="fld-input" value={node} onChange={(e) => setNode(e.target.value)} placeholder="node name, e.g. apply_gamma" />
-      {out && <pre className="chat-answer">{out}</pre>}
-    </section>
+
+      <div className="panel">
+        <div className="panel-head">
+          <h2>{t('Adaptive reflection')}</h2>
+          <button className="btn-run" onClick={runReflect} disabled={!!busy}>
+            {busy === 'refl' ? '■ …' : '▶ Diagnose'}
+          </button>
+        </div>
+        <p className="muted small">Deterministic error → root-stage tracer over the sign-off ladder.</p>
+        {refl && (
+          <pre className="out-block">
+{refl.ok
+  ? `OK — no failing stage.${refl.skipped?.length ? `\nskipped: ${refl.skipped.join(', ')}` : ''}`
+  : `root   : ${refl.root_stage} (${refl.error_source})\ncause  : ${refl.diagnosis}\naction : ${refl.action}`}
+          </pre>
+        )}
+      </div>
+
+      <div className="panel">
+        <div className="panel-head">
+          <h2>{t('Logical equivalence (LEC)')}</h2>
+          <button className="btn-run" onClick={runEquiv} disabled={!!busy}>
+            {busy === 'equiv' ? '■ Proving…' : '▶ Check'}
+          </button>
+        </div>
+        <p className="muted small">
+          yosys sequential LEC at reduced params. Blank = self-equivalence sanity check.
+        </p>
+        <textarea value={code} onChange={(e) => setCode(e.target.value)} rows={3}
+                  placeholder="candidate Verilog (blank = self-equiv)" />
+        {equiv && (
+          <div className={`verdict verdict-${equiv.equivalent ? 'SIGNED_OFF' : 'REJECTED'}`}>
+            {equiv.status} {equiv.equivalent ? '✓' : '✗'}
+          </div>
+        )}
+      </div>
+
+      <div className="panel">
+        <div className="panel-head">
+          <h2>{t('Graph RAG')}</h2>
+          <button className="btn-run" onClick={runGraph} disabled={!!busy || !node.trim()}>
+            {busy === 'graph' ? '■ …' : '▶ Explain'}
+          </button>
+        </div>
+        <p className="muted small">Knowledge-graph neighborhood (graphify) — grounding context.</p>
+        <input className="fld-input" value={node} onChange={(e) => setNode(e.target.value)}
+               placeholder="node name, e.g. apply_gamma" />
+        {graph && <pre className="out-block">{graph}</pre>}
+      </div>
+    </div>
   )
 }
 
-function ToolsTab() {
-  return (
-    <>
-      <ProgressiveCard />
-      <ReflectCard />
-      <EquivCard />
-      <GraphCard />
-    </>
-  )
-}
-
-// ---------- App shell ----------
-type Tab = 'verify' | 'plan' | 'tools'
-
+// ---------------- app ----------------
+/**
+ * Thin outer shell that owns the language and provides it.
+ *
+ * Separate from Workbench because a component cannot consume a context it
+ * provides in the same render — Workbench needs `useT()`, so the provider has
+ * to sit above it.
+ */
 export default function App() {
-  const [tab, setTab] = useState<Tab>('verify')
+  const [lang, setLangState] = useState<Lang>(readStoredLang)
+  const setLang = useCallback((l: Lang) => { setLangState(l); storeLang(l) }, [])
+  // Keep the document language honest for screen readers and for `lang`-aware
+  // font stacks: Korean and Latin text hint differently.
+  useEffect(() => { document.documentElement.lang = lang }, [lang])
+  return (
+    <LangContext.Provider value={{ lang, setLang }}>
+      <Workbench />
+    </LangContext.Provider>
+  )
+}
+
+function Workbench() {
+  const t = useT()
+  const { lang, setLang } = useLang()
+  const [view, setView] = useState<View>('overview')
   const [health, setHealth] = useState<Health | null>(null)
   const [data, setData] = useState<VerificationResults | null>(null)
   const [qor, setQor] = useState<QoRReport | null>(null)
+  const [skills, setSkills] = useState<SkillReport | null>(null)
+  const [kb, setKb] = useState<KbStats | null>(null)
   const [telemetry, setTelemetry] = useState<Telemetry | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [signoff, setSignoff] = useState<SignoffReport | null>(null)
+  const [sel, setSel] = useState<NavSelection | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
-  const [refreshing, setRefreshing] = useState(false)
+  const [consoleOpen, setConsoleOpen] = useState(true)
+  const [showNav, setShowNav] = useState(true)
+  const [showProps, setShowProps] = useState(true)
+  const [theme, setTheme] = useState<'dark' | 'light'>(
+    () => (localStorage.getItem('wb-theme') as 'dark' | 'light') || 'dark')
+  const shellRef = useRef<HTMLDivElement>(null)
 
-  function refreshTelemetry() { api.telemetry('signoff').then(setTelemetry).catch(() => {}) }
+  // Restore dragged pane sizes before the first paint, so a rebalanced
+  // workspace does not visibly snap from the fluid default to the saved one.
+  useLayoutEffect(() => { applySavedPanes(shellRef.current) }, [])
 
-  async function loadAll() {
-    setRefreshing(true)
-    setError(null)
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    localStorage.setItem('wb-theme', theme)
+  }, [theme])
+
+  const loadAll = useCallback(async () => {
+    setBusy('load')
+    log.cmd('reload --all')
     await Promise.allSettled([
-      api.health().then(setHealth).catch(() => setHealth(null)),
-      api.verification().then(setData)
-        .catch((e) => setError(e instanceof Error ? e.message : String(e))),
-      api.analyze().then(setQor).catch(() => setQor(null)),
+      api.health().then(setHealth).catch(() => {
+        setHealth(null); log.error('CONN', 'api-server unreachable on /api/health')
+      }),
+      traced({ stage: 'scoreboard', tool: 'golden-model', design: 'gamma',
+               cmd: 'read_results --live' },
+        () => api.verification(),
+        (v) => {
+          const f = v.summary.failed
+          if (f) log.error('SCOREBOARD', `${f} of ${v.summary.total_patterns} patterns mismatched`)
+          else log.info('SCOREBOARD', `${v.summary.passed}/${v.summary.total_patterns} patterns bit-exact (${v.summary.total_pixels.toLocaleString()} px)`)
+          return { status: f ? 'fail' : 'pass' }
+        }).then((v) => v && setData(v)),
+      traced({ stage: 'analyze', tool: 'verilator+yosys', design: 'gamma',
+               cmd: 'analyze rtl/gamma.v' },
+        () => api.analyze(),
+        (v) => {
+          for (const c of v.checks) {
+            if (c.ok) continue
+            const f = c.severity === 'error' ? log.error : c.severity === 'warn' ? log.warn : log.note
+            f(c.id.toUpperCase().slice(0, 10), `gamma: ${c.detail}`)
+          }
+          log.info('SYNTH', `gamma: ${v.metrics.synth_cells ?? '?'} cells, ${v.metrics.synth_flops ?? '?'} flops, ${v.metrics.synth_latches ?? 0} latches`)
+          return { status: v.score >= 70 ? 'pass' : 'fail', extra: `score ${v.score}/100 (${v.grade})` }
+        }).then((v) => v && setQor(v)),
+      api.skills().then((s) => {
+        setSkills(s)
+        log.info('SKILLS', `profile ${s.profile}: ${s.active.length}/${s.skills.length} loaded`)
+        for (const m of s.missing) log.warn('SKILLS', `${m}: not installed in the serving profile — agent cannot load it`)
+      }).catch(() => setSkills(null)),
       api.telemetry('signoff').then(setTelemetry).catch(() => {}),
+      api.kbStats().then((k) => {
+        setKb(k)
+        log.info('KB', `${k.chunks} passages indexed (${k.pinned} pinned), ${k.terms} terms`)
+      }).catch(() => setKb(null)),
     ])
     setUpdatedAt(new Date())
-    setRefreshing(false)
+    setBusy(null)
+  }, [])
+
+  useEffect(() => { void loadAll() }, [loadAll])
+
+  async function runSignoff() {
+    setBusy('signoff')
+    setView('signoff')
+    const r = await traced(
+      { stage: 'signoff', tool: 'lint+yosys+cocotb', design: 'gamma', cmd: 'signoff --run-regression' },
+      () => api.signoff(true),
+      (v) => {
+        for (const s of v.stages) {
+          const f = s.status === 'pass' ? log.info : s.status === 'skip' ? log.warn : log.error
+          f('STAGE', `${s.name}: ${s.status}${s.gating ? ' (gating)' : ''} — ${s.detail}`)
+        }
+        return { status: v.verdict, extra: `score ${v.score}/100 (${v.grade})` }
+      })
+    if (r) setSignoff(r)
+    api.telemetry('signoff').then(setTelemetry).catch(() => {})
+    setBusy(null)
   }
 
-  useEffect(() => { loadAll() }, [])
+  function exportTranscript() {
+    const el = document.querySelector('.console-body')
+    const text = el?.textContent ?? ''
+    const blob = new Blob([text], { type: 'text/plain' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `gamma-transcript-${new Date().toISOString().slice(0, 19).replace(/:/g, '')}.log`
+    a.click()
+    URL.revokeObjectURL(a.href)
+    log.info('CONSOLE', `transcript exported as ${a.download}`)
+  }
 
-  const tabs: { id: Tab; label: string }[] = [
-    { id: 'verify', label: 'Verify' },
-    { id: 'plan', label: 'Plan / Ask' },
-    { id: 'tools', label: 'Tools' },
-  ]
+  const gatewayReady = !!health?.has_key
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <div>
-          <h1>AI-Driven RTL Workbench</h1>
-          <p className="muted">gamma core · Python golden ↔ SystemC ↔ RTL · plan → generate → verify</p>
+    <div className="workbench" ref={shellRef}>
+      {/* ---- menu bar ---- */}
+      <div className="menubar">
+        <div className="brand">
+          <span className="brand-mark">RTL</span>
+          <span className="brand-name">Verification Workbench</span>
+          <span className="brand-design">gamma</span>
+          <span className="brand-thesis">{t('golden model as executable oracle · 3-way bit-exact')}</span>
         </div>
-        <div className="topbar-right">
-          <HealthPill health={health} />
-          <div className="topbar-actions">
-            <button className="btn-ghost" onClick={loadAll} disabled={refreshing}>
-              {refreshing ? 'Refreshing…' : '↻ Refresh'}
-            </button>
-            {updatedAt && (
-              <span className="muted small">updated {updatedAt.toLocaleTimeString()}</span>
+        <Menu label="File">
+          <MenuItem onClick={loadAll} accel="⌘R">{t('Reload all')}</MenuItem>
+          <MenuItem onClick={exportTranscript}>{t('Export transcript…')}</MenuItem>
+          <MenuItem onClick={() => {
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+            const a = document.createElement('a')
+            a.href = URL.createObjectURL(blob); a.download = 'results.json'; a.click()
+            URL.revokeObjectURL(a.href)
+          }} disabled={!data}>{t('Export results.json…')}</MenuItem>
+        </Menu>
+        <Menu label="View">
+          <MenuItem onClick={() => setShowNav((v) => !v)}>{showNav ? '✓ ' : ''}Design navigator</MenuItem>
+          <MenuItem onClick={() => setShowProps((v) => !v)}>{showProps ? '✓ ' : ''}{t('Properties')}</MenuItem>
+          <MenuItem onClick={() => setConsoleOpen((v) => !v)}>{consoleOpen ? '✓ ' : ''}{t('Transcript')}</MenuItem>
+          <MenuItem onClick={() => {
+            resetPanes(shellRef.current)
+            setShowNav(true); setShowProps(true); setConsoleOpen(true)
+            log.info('LAYOUT', 'pane sizes reset to the fluid defaults')
+          }}>{t('Reset layout')}</MenuItem>
+          <MenuItem onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+            {theme === 'dark' ? t('Light theme') : t('Dark theme')}
+          </MenuItem>
+          <MenuItem onClick={() => setLang(lang === 'ko' ? 'en' : 'ko')} accel="EN / 한">
+            {lang === 'ko' ? 'English' : '한국어'}
+          </MenuItem>
+        </Menu>
+        <Menu label="Run">
+          <MenuItem onClick={runSignoff} disabled={!!busy}>{t('Sign-off ladder')}</MenuItem>
+          <MenuItem onClick={() => setView('waveform')}>{t('Traced simulation…')}</MenuItem>
+          <MenuItem onClick={() => setView('schematic')}>{t('Elaborate schematic')}</MenuItem>
+          <MenuItem onClick={() => setView('flows')}>Flows (LEC, reflection)…</MenuItem>
+          <MenuItem onClick={() => setView('improve')}>{t('Self-improvement loop…')}</MenuItem>
+          <MenuItem onClick={() => setView('knowledge')}>{t('Knowledge retrieval…')}</MenuItem>
+        </Menu>
+        <Menu label="Help">
+          <MenuItem onClick={() => setView('help')} accel="?">{t('User manual')}</MenuItem>
+          <MenuItem onClick={() => setView('overview')}>{t('What is this?')}</MenuItem>
+          <MenuItem onClick={() => {
+            log.info('ABOUT', 'gamma verification workbench — golden(Python) / SystemC / RTL 3-way bit-exact scoreboard')
+            log.note('ABOUT', 'open-source flow: verilator, icarus, cocotb, yosys, sby')
+            setConsoleOpen(true)
+          }}>{t('About')}</MenuItem>
+        </Menu>
+
+        <div className="menubar-right">
+          <div className="lang-toggle" role="group" aria-label="language">
+            {(['en', 'ko'] as Lang[]).map((l) => (
+              <button key={l}
+                      className={`lang-btn ${lang === l ? 'lang-on' : ''}`}
+                      onClick={() => setLang(l)}
+                      aria-pressed={lang === l}>
+                {l === 'en' ? 'EN' : '한'}
+              </button>
+            ))}
+          </div>
+          <span className={`conn ${health ? 'conn-ok' : 'conn-bad'}`}>
+            {health ? t('connected') : t('offline')}
+          </span>
+        </div>
+      </div>
+
+      {/* ---- toolbar ---- */}
+      <div className="toolbar">
+        <button className="tool" onClick={loadAll} disabled={!!busy} title="Reload all data">
+          <span className="tool-ico">↻</span>{t('Reload')}
+        </button>
+        <span className="tool-sep" />
+        <button className="tool" onClick={() => setView('waveform')} title="Waveform viewer">
+          <span className="tool-ico">◠</span>{t('Waveform')}
+        </button>
+        <button className="tool" onClick={() => setView('schematic')} title="RTL schematic">
+          <span className="tool-ico">▦</span>{t('Schematic')}
+        </button>
+        <span className="tool-sep" />
+        <button className="tool tool-primary" onClick={runSignoff} disabled={!!busy}>
+          <span className="tool-ico">▶</span>{busy === 'signoff' ? t('Running sign-off…') : t('Run sign-off')}
+        </button>
+        <div className="toolbar-right">
+          {skills && (
+            <span className={`pill ${skills.missing.length ? 'pill-warn' : 'pill-ok'}`}
+                  title={skills.missing.length ? `missing: ${skills.missing.join(', ')}` : 'all skills loaded'}>
+              skills {skills.active.length}/{skills.skills.length}
+            </span>
+          )}
+          <span className={`pill ${health?.verilator ? 'pill-ok' : 'pill-warn'}`}>
+            verilator {health?.verilator ? 'ok' : 'missing'}
+          </span>
+          <span className={`pill ${gatewayReady ? 'pill-ok' : 'pill-warn'}`}>
+            hermes {gatewayReady ? 'ready' : 'no key'}
+          </span>
+        </div>
+      </div>
+
+      {/* ---- workspace ---- */}
+      <div className="workspace">
+        {showNav && (
+          <>
+            <Navigator data={data} skills={skills} selected={sel} onSelect={setSel} />
+            <Splitter axis="x" varName="--nav-w" min={150} max={520} label="Navigator width" />
+          </>
+        )}
+
+        <main className="work-area">
+          <div className="view-tabs">
+            {VIEWS.map((v) => (
+              <button key={v.id}
+                      className={`view-tab ${view === v.id ? 'view-tab-active' : ''}`}
+                      onClick={() => setView(v.id)}>
+                {v.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="view-body">
+            {view === 'overview' && (
+              <Overview data={data} qor={qor} skills={skills} kb={kb}
+                        onGo={(v) => setView(v as View)} />
+            )}
+            {view === 'scoreboard' && (data
+              ? <Scoreboard data={data} onPick={(p) => setSel({ kind: 'pattern', id: p.name, data: p })} />
+              : <div className="pane-empty muted">{t('Loading verification results…')}</div>)}
+            {view === 'waveform' && <WaveformPane />}
+            {view === 'schematic' && (
+              <SchematicPane onSelect={(n: SchematicNode) => setSel({
+                kind: 'flow',
+                id: n.name || n.label,
+                data: {
+                  label: n.label, type: n.type, class: n.cls, level: n.layer,
+                  width: `${n.width} bit`,
+                  source: n.src_line ? `rtl/gamma.v:${n.src_line}` : '',
+                  sequential: n.seq ? 'yes' : 'no',
+                },
+              })} />
+            )}
+            {view === 'quality' && <Quality qor={qor} />}
+            {view === 'signoff' && (
+              <SignoffView report={signoff} telemetry={telemetry}
+                           busy={busy === 'signoff'} onRun={runSignoff} />
+            )}
+            {view === 'flows' && <Flows />}
+            {view === 'improve' && <ImprovePane />}
+            {view === 'knowledge' && <KnowledgePane />}
+            {view === 'help' && <HelpPane />}
+            {view === 'assistant' && (
+              <div className="view-scroll">
+                <PlanTab gatewayReady={gatewayReady} />
+                <ChatPanel gatewayReady={gatewayReady} skills={skills} />
+              </div>
             )}
           </div>
-        </div>
-      </header>
+        </main>
 
-      <nav className="tabs">
-        {tabs.map((t) => (
-          <button key={t.id} className={`tab ${tab === t.id ? 'tab-active' : ''}`} onClick={() => setTab(t.id)}>
-            {t.label}
-          </button>
-        ))}
-      </nav>
+        {showProps && (
+          <>
+            <Splitter axis="x" varName="--props-w" min={170} max={560} invert
+                      label="Properties width" />
+            <Properties sel={sel} qor={qor} />
+          </>
+        )}
+      </div>
 
-      {error && <div className="card error-card">Failed to load results: {error}</div>}
-
-      {tab === 'verify' && (data
-        ? <VerifyTab data={data} qor={qor} telemetry={telemetry} onSignoff={refreshTelemetry} />
-        : <div className="card muted">Loading verification results…</div>)}
-      {tab === 'plan' && (
-        <>
-          <PlanTab gatewayReady={!!health?.has_key} />
-          <ChatPanel gatewayReady={!!health?.has_key} />
-        </>
+      {/* ---- transcript ---- */}
+      {consoleOpen && (
+        <Splitter axis="y" varName="--console-h" min={80} max={700} invert
+                  label="Transcript height" />
       )}
-      {tab === 'tools' && <ToolsTab />}
+      <Console open={consoleOpen} onToggle={() => setConsoleOpen((v) => !v)} />
+
+      {/* ---- status bar ---- */}
+      <div className="statusbar">
+        <span className="sb-item">{t('design')}: <b>{data?.design.module ?? 'gamma'}</b></span>
+        <span className="sb-item">
+          {t('scoreboard')}: <b className={data?.summary.failed ? 'sb-fail' : 'sb-ok'}>
+            {data ? `${data.summary.passed}/${data.summary.total_patterns}` : '—'}
+          </b>
+        </span>
+        <span className="sb-item">QoR: <b>{qor ? `${qor.score} (${qor.grade})` : '—'}</b></span>
+        <span className="sb-item">{t('profile')}: <b>{skills?.profile ?? '—'}</b></span>
+        <span className="sb-item">kb: <b>{kb ? `${kb.chunks} psg` : '—'}</b></span>
+        <span className="sb-item">{t('model')}: <b>{health?.model ?? '—'}</b></span>
+        <span className="sb-spacer" />
+        {busy && <span className="sb-item sb-busy"><i className="spinner" />{busy}…</span>}
+        <span className="sb-item muted">{updatedAt ? `${t('updated')} ${updatedAt.toLocaleTimeString()}` : t('loading…')}</span>
+      </div>
     </div>
   )
 }

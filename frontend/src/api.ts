@@ -3,12 +3,24 @@ import type {
   EquivResult,
   GraphResult,
   Health,
+  KbSearch,
+  KbStats,
   Progressive,
   QoRReport,
   Reflection,
+  Schematic,
   SignoffReport,
+  SkillReport,
+  Audit,
+  DocFile,
+  LoopResult,
+  MutationRun,
+  Proof,
   Telemetry,
+  Uarch,
   VerificationResults,
+  WaveStatus,
+  Waveform,
 } from './types'
 
 const BASE = '/api'
@@ -96,4 +108,69 @@ export const api = {
 
   graphExplain: (node: string) =>
     request<GraphResult>(`/graph/explain?node=${encodeURIComponent(node)}`),
+
+  // Which skills the gateway's serving profile really has. `refresh` re-scans
+  // after a sync instead of serving the cached report.
+  skills: (refresh = false) =>
+    request<SkillReport>(`/skills${refresh ? '?refresh=true' : ''}`),
+
+  waveStatus: () => request<WaveStatus>('/waveform/status'),
+
+  // Runs the traced (WAVES=1) regression when no dump exists; ~30% slower sim.
+  waveRun: (regenerate: boolean) =>
+    request<WaveStatus>('/waveform/run', {
+      method: 'POST',
+      body: JSON.stringify({ regenerate }),
+    }),
+
+  waveform: (opts: { start?: number; end?: number; maxTransitions?: number } = {}) => {
+    const q = new URLSearchParams()
+    if (opts.start != null) q.set('start', String(opts.start))
+    if (opts.end != null) q.set('end', String(opts.end))
+    q.set('max_transitions', String(opts.maxTransitions ?? 20000))
+    return request<Waveform>(`/waveform?${q}`)
+  },
+
+  schematic: () => request<Schematic>('/schematic'),
+
+  /** A project document (MANUAL / UARCH / TESTPLAN / README) for in-app reading. */
+  doc: (name: string, lang = 'en') =>
+    request<DocFile>(`/doc/${encodeURIComponent(name)}?lang=${encodeURIComponent(lang)}`),
+
+  /** docs/UARCH.md — the planner's real design input. */
+  uarch: () => request<Uarch>('/uarch'),
+
+  /** Ranked gaps in EVIDENCE — deterministic, no gateway needed. */
+  audit: () => request<Audit>('/improve/audit'),
+
+  /** Gate a candidate (or the committed RTL when `code` is omitted). */
+  prove: (code?: string, bpProfile = 'split') =>
+    request<Proof>('/improve/prove', {
+      method: 'POST',
+      body: JSON.stringify({ code: code ?? null, bp_profile: bpProfile }),
+    }),
+
+  /** Inject single faults and run the real gate on each (~10s per mutant). */
+  mutate: (limit: number) =>
+    request<MutationRun>('/improve/mutate', {
+      method: 'POST',
+      body: JSON.stringify({ limit }),
+    }),
+
+  improveLoop: (goal: string, maxIters: number) =>
+    request<LoopResult>('/improve/loop', {
+      method: 'POST',
+      body: JSON.stringify({ goal, max_iters: maxIters }),
+    }),
+
+  applyCandidate: (candidatePath: string) =>
+    request<{ applied: boolean; reason?: string; backup?: string; proof: Proof }>(
+      '/improve/apply',
+      { method: 'POST', body: JSON.stringify({ candidate_path: candidatePath }) }),
+
+  kbStats: () => request<KbStats>('/kb/stats'),
+
+  /** The same retrieval path /chat uses, so the ranking can be inspected. */
+  kbSearch: (q: string, withText = true) =>
+    request<KbSearch>(`/kb/search?q=${encodeURIComponent(q)}&limit=12&text=${withText}`),
 }
