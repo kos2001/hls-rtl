@@ -118,16 +118,15 @@ class Proof:
               "— when the 4-state stage ran — that the same tests hold under a "
               "simulator that can represent X, so no uninitialised read or "
               "unreset register leaks into a sampled output; and — when the "
-              "formal stage ran — that the handshake invariants hold on every "
-              "trace up to the bounded depth: no overflow, no false "
-              "backpressure, no retraction, output valid exactly when a pixel "
-              "is outstanding")
+              "formal stage ran — that the handshake invariants hold on EVERY "
+              "reachable trace, unbounded (k-induction closes): no overflow, no "
+              "false backpressure, no retraction, output valid exactly when a "
+              "pixel is outstanding, reset empties the core")
     DOES_NOT_PROVE = (
-        "behaviour beyond the formal bound (the induction case does not close, "
-        "so this is a bounded proof, not an unbounded one), datapath values for "
-        "inputs outside the test set, whether the test set would CATCH a bug at "
-        "all (pass rate is not sensitivity), or anything about Fmax, area or "
-        "power")
+        "datapath VALUES for inputs outside the test set (formal covers the "
+        "control path, not the LUT mapping), whether the test set would CATCH a "
+        "bug at all (pass rate is not sensitivity), or anything about Fmax, "
+        "area or power")
 
     @property
     def verdict(self) -> str:
@@ -246,11 +245,13 @@ def _run_formal(candidate: Path, timeout: int) -> Tuple[str, str]:
 
     Closes a measured gap: a one-entry occupancy error passes the whole
     scoreboard with no throughput change, and `a_no_false_stall` catches it in
-    under a second. `cover` runs too — a bounded proof that passes over
-    unreachable states proves nothing, so reachability is part of the result,
-    not a footnote.
+    under a second.
 
-    Bounded, not unbounded: see the note in formal/gamma.sby about induction.
+    `prove` (k-induction), not `bmc`: the induction case closes, so these are
+    unbounded results — the invariants hold on every reachable trace, not just
+    up to a depth. `cover` runs alongside because a proof that passes over
+    unreachable states proves nothing, so reachability is part of the result
+    rather than a footnote.
     """
     if shutil.which("sby") is None:
         return ("skip", "sby not available")
@@ -265,7 +266,7 @@ def _run_formal(candidate: Path, timeout: int) -> Tuple[str, str]:
         (work / "gamma.sby").write_text(sby)
 
         results, failures = {}, []
-        for task in ("bmc", "cover"):
+        for task in ("prove", "cover"):
             try:
                 proc = subprocess.run(
                     ["sby", "-f", "gamma.sby", task], cwd=str(work),
@@ -421,14 +422,14 @@ _GAP_CHECKS = (
      "under Icarus — measured, not argued. The gate runs Icarus when it is "
      "installed; without it this evidence is missing.",
      "make -C tb SIM=icarus"),
-    ("unbounded formal proof", "medium",
-     "formal/ covers the handshake invariants, but only to a BOUNDED depth: "
-     "k-induction's base case passes and the induction step does not, because "
-     "linking the reference occupancy counter to the DUT's internal counter "
-     "needs a hierarchical reference yosys does not support. Traces longer than "
-     "the bound are unproven.",
-     "strengthen the invariant (e.g. expose occupancy as a port, or use a "
-     "toolchain with hierarchical access), then: sby -f formal/gamma.sby prove"),
+    ("formal datapath proof", "low",
+     "formal/ proves the CONTROL path unboundedly (k-induction closes), but "
+     "says nothing about the LUT mapping itself — that a pixel leaves as "
+     "lut[pixel] for its own channel. That correctness lives entirely in the "
+     "golden-model scoreboard, i.e. in the patterns that happen to be in the "
+     "test set.",
+     "add a formal property relating out_* to a shadow of the LUT writes, or "
+     "accept that the datapath is simulation-proven only"),
     ("mutation coverage", "medium",
      "Nothing measures whether the testbench would CATCH a bug. Pass rate is "
      "not sensitivity.",
@@ -465,7 +466,7 @@ def audit() -> dict:
     satisfied = {"systemc rung": have_sc, "4-state simulation": have_icarus}
     tooling = {
         "4-state simulation": have_icarus,
-        "unbounded formal proof": have_sby and have_formal,
+        "formal datapath proof": have_sby and have_formal,
         "mutation coverage": have_mcy,
         "style lint": have_verible,
     }
