@@ -286,8 +286,9 @@ cd tb && make SIM=icarus                # 4-state 교차 확인
 cd tb && make WAVES=1                   # VCD 포함
 cd tb && make TESTCASE=test_lut_reload  # 테스트 하나만
 BP_PROFILE=full make -C tb              # 모든 패턴 × 프로파일 (야간)
-sby -f formal/gamma.sby bmc             # formal (bounded)
+sby -f formal/gamma.sby prove           # formal, 무한 증명 (k-induction)
 sby -f formal/gamma.sby cover           # 도달 가능성 (공허하지 않음 확인)
+sby -f formal/gamma.sby bmc             # bounded, 반례 트레이스가 필요할 때
 
 curl localhost:8012/api/verification     # 스코어보드
 curl localhost:8012/api/skills           # 에이전트가 로드할 수 있는 skill

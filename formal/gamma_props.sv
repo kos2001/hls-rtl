@@ -63,9 +63,22 @@ module gamma_props #(
     );
 
     localparam integer CNT_W = $clog2(FIFO_DEPTH + 1);
+    localparam integer PTR_W = $clog2(FIFO_DEPTH);
 
     wire push = in_valid  && in_ready;
     wire pop  = out_valid && out_ready;
+
+    // The DUT's own occupancy counter, bound by a yosys `connect` in gamma.sby
+    // AFTER `flatten` — see the note there. It is used for exactly one thing:
+    // the induction-strengthening invariant A9. Every behavioural property
+    // below still speaks only about the ports.
+    //
+    // If the internal name ever changes, `connect -set` fails with a hard error
+    // ("Failed to parse set rhs expression"), not a warning. That matters: the
+    // Verilog frontend's response to the same mistake is to invent an undriven
+    // wire — a free variable that makes properties pass while proving nothing.
+    wire [CNT_W-1:0] dut_count;
+    wire [PTR_W-1:0] dut_rd_ptr, dut_wr_ptr;
 
     // Reference occupancy: how many pixels the DUT has accepted but not yet
     // handed over. Driven purely by the handshakes, with the DUT's own reset
@@ -154,6 +167,35 @@ module gamma_props #(
                 a_data_stable_b: assert (out_b == p_out_b);
             end
         end
+
+        // A9. The reference model tracks the DUT's own counter.
+        //
+        //     This is the ONE property that names an internal signal, and it
+        //     exists to make k-induction close. Induction starts from an
+        //     arbitrary state satisfying the assertions; without this, it may
+        //     start with `outstanding` and the DUT's counter disagreeing in a
+        //     way no reachable execution allows, and A2/A4 then fail in the
+        //     inductive step for a reason that cannot happen. Both counters
+        //     move by the same push/pop under the same reset, so the equality
+        //     is itself inductive.
+        //
+        //     It is not a restatement of the behavioural properties: those say
+        //     what the ports must do, this says the model is watching the right
+        //     register.
+        a_model_tracks_dut: assert (outstanding == dut_count);
+
+        // A10. The pointers agree with the occupancy.
+        //
+        //      The second induction strengthener, and the one the data-stability
+        //      properties need. Without it, induction may begin in a state where
+        //      the FIFO is not full yet `wr_ptr == rd_ptr`; a push then
+        //      overwrites the entry currently being presented, and A6 fails for
+        //      a reason no reachable execution can produce.
+        //
+        //      FIFO_DEPTH is a power of two here, so truncating the count to
+        //      PTR_W bits is the modulo: at count == FIFO_DEPTH it gives 0,
+        //      which is exactly the full case where the pointers coincide.
+        a_ptrs_match_count: assert (dut_wr_ptr == (dut_rd_ptr + dut_count[PTR_W-1:0]));
 
         // A8. Reset empties the core. Stated on the current cycle because the
         //     reset is asynchronous: it holds while rst_n is low, not one cycle
