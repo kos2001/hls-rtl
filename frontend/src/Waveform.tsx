@@ -55,6 +55,10 @@ export function WaveformPane({ onSelect }: { onSelect?: (name: string) => void }
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const [wrapW, setWrapW] = useState(800)
+  // Page zoom changes devicePixelRatio. The canvas backing store is sized from
+  // it, so without tracking it a zoom that leaves the pane's CSS width unchanged
+  // would leave the waveform rendered at the old ratio — i.e. blurry.
+  const [dpr, setDpr] = useState(() => window.devicePixelRatio || 1)
 
   const signals = useMemo(() => wave?.signals ?? [], [wave])
   const params = wave?.parameters ?? []
@@ -112,6 +116,20 @@ export function WaveformPane({ onSelect }: { onSelect?: (name: string) => void }
     return () => ro.disconnect()
   }, [])
 
+  useEffect(() => {
+    // A `resolution` media query is the reliable way to hear about a zoom
+    // change; it has to be re-armed each time because the query itself is
+    // pinned to the ratio that was current when it was created.
+    const onChange = () => setDpr(window.devicePixelRatio || 1)
+    const mq = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
+    mq.addEventListener('change', onChange)
+    window.addEventListener('resize', onChange)
+    return () => {
+      mq.removeEventListener('change', onChange)
+      window.removeEventListener('resize', onChange)
+    }
+  }, [dpr])
+
   const NAME_W = nameWidth(wrapW)
   const VALUE_W = valueWidth(wrapW)
   const plotW = Math.max(120, wrapW - NAME_W - VALUE_W)
@@ -122,7 +140,6 @@ export function WaveformPane({ onSelect }: { onSelect?: (name: string) => void }
   useEffect(() => {
     const cv = canvasRef.current
     if (!cv || signals.length === 0) return
-    const dpr = window.devicePixelRatio || 1
     const h = RULER_H + signals.length * ROW_H
     cv.width = plotW * dpr
     cv.height = h * dpr
@@ -235,7 +252,7 @@ export function WaveformPane({ onSelect }: { onSelect?: (name: string) => void }
       g.beginPath(); g.moveTo(cx, 0); g.lineTo(cx, h); g.stroke()
       g.setLineDash([])
     }
-  }, [signals, view, plotW, cursor, selected])
+  }, [signals, view, plotW, cursor, selected, dpr])
 
   // ---- interaction ----
   function onCanvasClick(e: React.MouseEvent<HTMLCanvasElement>) {

@@ -101,6 +101,12 @@ Regenerate that snapshot with
 The UI is laid out like a commercial EDA tool (Cadence/Synopsys): menu bar, run
 toolbar, **design navigator** (left), tabbed work area, **properties inspector**
 (right), **tool transcript** (bottom), status bar. Two themes via `data-theme`.
+Panes are fluid (`clamp()` defaults in CSS custom properties) and draggable
+(`src/Splitter.tsx`, persisted); View ▸ Reset layout clears a stored size.
+Verify layout changes with `npm run check:responsive` (8 viewport sizes x 6
+views; needs a playwright install — see the script header). **Test zoom by
+resizing the viewport, not with the CSS `zoom` property** — `zoom` scales boxes
+without moving the media queries, so it reports failures real zoom never hits.
 Every flow routes through `src/log.ts::traced()`, so the transcript is a complete
 severity-tagged record of the session — the format is specified by the
 `eda-transcript-conventions` skill, which means agent output and tool output read
