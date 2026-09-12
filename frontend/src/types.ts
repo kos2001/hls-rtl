@@ -269,3 +269,74 @@ export interface DocFile {
   chars: number
   text: string
 }
+
+// ---------- Self-improvement loop ----------
+export interface PatternOutcome {
+  name: string
+  ok: boolean
+  pixels: number
+  sha256: string
+  first_bad_index: number | null
+  got: string
+  ref: string
+  differing: number
+}
+
+export interface Proof {
+  candidate_path: string
+  verdict: 'PROVEN' | 'REJECTED' | 'INCONCLUSIVE'
+  equivalent: boolean
+  stages: Record<string, string>
+  details: Record<string, string>
+  tests: { total: number; passed: number; failed: number }
+  elapsed_s: number
+  patterns: PatternOutcome[]
+  throughput: Record<string, number>
+  proves: string
+  does_not_prove: string
+  log_tail: string
+}
+
+export interface EvidenceGap {
+  gap: string
+  severity: 'high' | 'medium' | 'low'
+  why_it_matters: string
+  how_to_close: string
+  tool_installed: boolean
+}
+
+export interface Audit {
+  gaps: EvidenceGap[]
+  note: string
+}
+
+export interface LoopAttempt {
+  iteration: number
+  proof?: Proof
+  diff?: { added: number; removed: number; unified: string }
+  changed_rtl?: boolean
+  reflection?: Reflection
+  note?: string
+  error?: string
+  citations?: KbChunk[]
+}
+
+export type LoopOutcome =
+  | 'PROVEN_CHANGE' | 'ORACLE_CONFLICT' | 'NO_CHANGE' | 'EXHAUSTED' | 'ERRORED'
+
+export interface LoopResult {
+  ok: boolean
+  error?: string
+  goal: string
+  iterations_run: number
+  max_iters: number
+  baseline: Proof
+  attempts: LoopAttempt[]
+  outcome: LoopOutcome
+  summary: string
+  converged: boolean
+  proven_candidate: string | null
+  proves: string
+  does_not_prove: string
+  note: string
+}

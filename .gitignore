@@ -16,3 +16,7 @@ frontend/dist/
 
 # cocotb/Verilator waveform dump (WAVES=1); regenerate with make -C tb WAVES=1
 tb/dump.vcd
+
+# self-improvement loop candidates (regenerated; never source of truth)
+build/improve/
+rtl/gamma.v.bak-*

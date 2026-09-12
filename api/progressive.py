@@ -34,16 +34,20 @@ for _p in ("scripts", "golden", "tb"):
 
 from gen_dashboard_data import build_results  # noqa: E402
 
+from .config import sim_env  # noqa: E402
+
 # e.g. "[gradient/no_bp] RTL vs golden: OK (2048 pixels, hash=99fc...)"
 _CMP_RE = re.compile(
     r"\[(?P<pat>\w+)/(?P<prof>\w+)\]\s+(?P<who>RTL vs golden|SC\s+vs golden)\s*:\s*(?P<verdict>OK|MISMATCH)"
 )
 
 
+
+
 def _run_regression(timeout: int) -> str:
     try:
         proc = subprocess.run(["make", "-s"], cwd=str(_TB_DIR), capture_output=True,
-                              text=True, timeout=timeout, env={**os.environ})
+                              text=True, timeout=timeout, env=sim_env())
         return proc.stdout + proc.stderr
     except subprocess.TimeoutExpired:
         return "TIMEOUT"

@@ -11,7 +11,10 @@ import type {
   Schematic,
   SignoffReport,
   SkillReport,
+  Audit,
   DocFile,
+  LoopResult,
+  Proof,
   Telemetry,
   Uarch,
   VerificationResults,
@@ -134,6 +137,27 @@ export const api = {
 
   /** docs/UARCH.md — the planner's real design input. */
   uarch: () => request<Uarch>('/uarch'),
+
+  /** Ranked gaps in EVIDENCE — deterministic, no gateway needed. */
+  audit: () => request<Audit>('/improve/audit'),
+
+  /** Gate a candidate (or the committed RTL when `code` is omitted). */
+  prove: (code?: string, bpProfile = 'split') =>
+    request<Proof>('/improve/prove', {
+      method: 'POST',
+      body: JSON.stringify({ code: code ?? null, bp_profile: bpProfile }),
+    }),
+
+  improveLoop: (goal: string, maxIters: number) =>
+    request<LoopResult>('/improve/loop', {
+      method: 'POST',
+      body: JSON.stringify({ goal, max_iters: maxIters }),
+    }),
+
+  applyCandidate: (candidatePath: string) =>
+    request<{ applied: boolean; reason?: string; backup?: string; proof: Proof }>(
+      '/improve/apply',
+      { method: 'POST', body: JSON.stringify({ candidate_path: candidatePath }) }),
 
   kbStats: () => request<KbStats>('/kb/stats'),
 
