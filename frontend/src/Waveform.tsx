@@ -13,10 +13,12 @@ import type { WaveSignal, Waveform as Wave } from './types'
  */
 
 const ROW_H = 24
-const NAME_W = 190
-const VALUE_W = 92
 const RULER_H = 26
 const PAD = 4
+// The name and value gutters scale with the pane so a narrow window spends its
+// pixels on the waveform itself, while a wide one stops widening the gutters.
+const nameWidth = (w: number) => Math.round(Math.min(210, Math.max(112, w * 0.20)))
+const valueWidth = (w: number) => Math.round(Math.min(110, Math.max(64, w * 0.10)))
 
 function hex(bits: string): string {
   if (/[xz]/.test(bits)) return bits.includes('x') ? 'x' : 'z'
@@ -110,6 +112,8 @@ export function WaveformPane({ onSelect }: { onSelect?: (name: string) => void }
     return () => ro.disconnect()
   }, [])
 
+  const NAME_W = nameWidth(wrapW)
+  const VALUE_W = valueWidth(wrapW)
   const plotW = Math.max(120, wrapW - NAME_W - VALUE_W)
   const tToX = useCallback((t: number) => ((t - view.start) / view.span) * plotW, [view, plotW])
   const xToT = useCallback((x: number) => view.start + (x / plotW) * view.span, [view, plotW])

@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { Console } from './Console'
 import { Navigator } from './Navigator'
 import type { NavSelection } from './Navigator'
 import { Properties } from './Properties'
 import { SchematicPane } from './Schematic'
+import { Splitter, applySavedPanes } from './Splitter'
 import { WaveformPane } from './Waveform'
 import { ChatPanel, PlanTab } from './PlanAsk'
 import { log, traced } from './log'
@@ -425,6 +426,11 @@ export default function App() {
   const [showProps, setShowProps] = useState(true)
   const [theme, setTheme] = useState<'dark' | 'light'>(
     () => (localStorage.getItem('wb-theme') as 'dark' | 'light') || 'dark')
+  const shellRef = useRef<HTMLDivElement>(null)
+
+  // Restore dragged pane sizes before the first paint, so a rebalanced
+  // workspace does not visibly snap from the fluid default to the saved one.
+  useLayoutEffect(() => { applySavedPanes(shellRef.current) }, [])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -505,7 +511,7 @@ export default function App() {
   const gatewayReady = !!health?.has_key
 
   return (
-    <div className="workbench">
+    <div className="workbench" ref={shellRef}>
       {/* ---- menu bar ---- */}
       <div className="menubar">
         <div className="brand">
@@ -587,7 +593,10 @@ export default function App() {
       {/* ---- workspace ---- */}
       <div className="workspace">
         {showNav && (
-          <Navigator data={data} skills={skills} selected={sel} onSelect={setSel} />
+          <>
+            <Navigator data={data} skills={skills} selected={sel} onSelect={setSel} />
+            <Splitter axis="x" varName="--nav-w" min={150} max={520} label="Navigator width" />
+          </>
         )}
 
         <main className="work-area">
@@ -633,10 +642,20 @@ export default function App() {
           </div>
         </main>
 
-        {showProps && <Properties sel={sel} qor={qor} />}
+        {showProps && (
+          <>
+            <Splitter axis="x" varName="--props-w" min={170} max={560} invert
+                      label="Properties width" />
+            <Properties sel={sel} qor={qor} />
+          </>
+        )}
       </div>
 
       {/* ---- transcript ---- */}
+      {consoleOpen && (
+        <Splitter axis="y" varName="--console-h" min={80} max={700} invert
+                  label="Transcript height" />
+      )}
       <Console open={consoleOpen} onToggle={() => setConsoleOpen((v) => !v)} />
 
       {/* ---- status bar ---- */}
