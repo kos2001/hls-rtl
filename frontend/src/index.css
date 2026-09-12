@@ -1450,3 +1450,29 @@ textarea:focus, .fld-input:focus { outline: none; border-color: var(--accent); }
   background: var(--panel-2); border: 1px solid var(--border); border-radius: 2px;
 }
 .apply-row code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* ------------------------------------------------------------------ i18n ---- */
+.lang-toggle {
+  display: flex;
+  gap: 1px;
+  margin-right: 8px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.lang-btn {
+  background: var(--chrome-2);
+  border: none;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  cursor: pointer;
+  line-height: 1.6;
+}
+.lang-btn:hover { color: var(--text); }
+.lang-on { background: var(--accent); color: #fff; }
+/* Korean needs a touch more line height than the Latin-tuned defaults. */
+:root:lang(ko) body { line-height: 1.5; }
+:lang(ko) .thesis-claim { letter-spacing: -0.02em; }

@@ -119,6 +119,15 @@ Regenerate that snapshot with
 The UI is laid out like a commercial EDA tool (Cadence/Synopsys): menu bar, run
 toolbar, **design navigator** (left), tabbed work area, **properties inspector**
 (right), **tool transcript** (bottom), status bar. Two themes via `data-theme`.
+Korean/English via `src/i18n.ts` (EN / 한 in the menu bar, or View ▸ 한국어).
+**Keys are the English source string**, so a missing translation renders English
+rather than a key id — and **technical vocabulary is deliberately not
+translated**: signal names, stage names (`lint`/`synthesize`), verdicts
+(`PROVEN`), units. Those are the same tokens the CLI prints and the transcript
+logs; translating them would break that correspondence. Documents follow the
+setting too (`GET /doc/{name}?lang=ko` prefers a `.ko.md` sibling and falls back
+to English, saying so in the UI).
+
 Panes are fluid (`clamp()` defaults in CSS custom properties) and draggable
 (`src/Splitter.tsx`, persisted); View ▸ Reset layout clears a stored size.
 Verify layout changes with `npm run check:responsive` (8 viewport sizes x 6

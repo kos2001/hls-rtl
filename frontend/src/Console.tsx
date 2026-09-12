@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { SEV_RANK, log, useLog } from './log'
 import type { Severity } from './log'
+import { useT } from './i18n'
 
 /**
  * Tool transcript — the bottom pane every commercial EDA GUI keeps.
@@ -24,6 +25,7 @@ function ts(t: number): string {
 }
 
 export function Console({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  const t = useT()
   const lines = useLog()
   const [threshold, setThreshold] = useState<Severity>('INFO')
   const [q, setQ] = useState('')
@@ -65,7 +67,7 @@ export function Console({ open, onToggle }: { open: boolean; onToggle: () => voi
     <section className={`console ${open ? '' : 'console-collapsed'}`}>
       <header className="console-head">
         <button className="console-toggle" onClick={onToggle} title={open ? 'Collapse' : 'Expand'}>
-          {open ? '▾' : '▴'} Transcript
+          {open ? '▾' : '▴'} {t('Transcript')}
         </button>
 
         <div className="sev-filter" role="group" aria-label="severity threshold">
@@ -83,15 +85,15 @@ export function Console({ open, onToggle }: { open: boolean; onToggle: () => voi
         </div>
 
         <input className="console-search" value={q} onChange={(e) => setQ(e.target.value)}
-               placeholder="filter (tag or text)" />
+               placeholder={t('filter (tag or text)')} />
 
         <div className="console-actions">
           <label className="console-follow">
             <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
-            follow
+            {t('follow')}
           </label>
-          <button className="tb-btn" onClick={copyAll}>Copy</button>
-          <button className="tb-btn" onClick={log.clear}>Clear</button>
+          <button className="tb-btn" onClick={copyAll}>{t('Copy')}</button>
+          <button className="tb-btn" onClick={log.clear}>{t('Clear')}</button>
         </div>
       </header>
 
@@ -100,7 +102,7 @@ export function Console({ open, onToggle }: { open: boolean; onToggle: () => voi
           {shown.length === 0 && (
             <div className="console-line console-empty">
               <span className="muted small">
-                No messages at this threshold. Run a flow from the toolbar.
+                {t('No messages at this threshold. Run a flow from the toolbar.')}
               </span>
             </div>
           )}

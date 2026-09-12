@@ -3,6 +3,7 @@ import { api } from './api'
 import { log, traced } from './log'
 import { Busy, useElapsed } from './ui'
 import type { Audit, LoopAttempt, LoopResult, Proof } from './types'
+import { useT } from './i18n'
 
 /**
  * Self-improvement loop — propose, prove, reflect, retry.
@@ -86,6 +87,7 @@ function AttemptCard({ a }: { a: LoopAttempt }) {
 }
 
 export function ImprovePane() {
+  const t = useT()
   const [audit, setAudit] = useState<Audit | null>(null)
   const [baseline, setBaseline] = useState<Proof | null>(null)
   const [goal, setGoal] = useState(
@@ -153,23 +155,23 @@ export function ImprovePane() {
   return (
     <div className="view-scroll">
       <div className="panel panel-caveat">
-        <strong>What a PROVEN verdict means.</strong>{' '}
+        <strong>{t('What a PROVEN verdict means.')}</strong>{' '}
         {baseline?.proves ?? result?.proves ??
           'output values and their ordering are bit-exact against the Python golden model, for the patterns and profiles that ran'}.
         <br />
-        <strong>What it does not mean.</strong>{' '}
+        <strong>{t('What it does not mean.')}</strong>{' '}
         {baseline?.does_not_prove ?? result?.does_not_prove ??
           'timing beyond ordering, X-propagation, reset initialization, or inputs outside the test set'}.
       </div>
 
       <section className="panel">
         <div className="panel-head">
-          <h2>Evidence gaps</h2>
-          <span className="muted small">what to improve next — deterministic, no gateway</span>
+          <h2>{t('Evidence gaps')}</h2>
+          <span className="muted small">{t('what to improve next — deterministic, no gateway')}</span>
         </div>
         <div className="table-wrap">
           <table className="grid">
-            <thead><tr><th>severity</th><th>gap</th><th>why it matters</th><th>how to close</th><th>tool</th></tr></thead>
+            <thead><tr><th>{t('severity')}</th><th>{t('gap')}</th><th>{t('why it matters')}</th><th>{t('how to close')}</th><th>{t('tool')}</th></tr></thead>
             <tbody>
               {(audit?.gaps ?? []).map((g) => (
                 <tr key={g.gap}>
@@ -179,8 +181,8 @@ export function ImprovePane() {
                   <td className="muted small gap-why">{g.why_it_matters}</td>
                   <td className="mono small">{g.how_to_close}</td>
                   <td>{g.tool_installed
-                    ? <span className="badge badge-pass">ready</span>
-                    : <span className="badge badge-skip">not installed</span>}</td>
+                    ? <span className="badge badge-pass">{t('ready')}</span>
+                    : <span className="badge badge-skip">{t('not installed')}</span>}</td>
                 </tr>
               ))}
             </tbody>
@@ -191,9 +193,9 @@ export function ImprovePane() {
 
       <section className="panel">
         <div className="panel-head">
-          <h2>Baseline gate</h2>
+          <h2>{t('Baseline gate')}</h2>
           <button className="btn-run" onClick={proveBaseline} disabled={!!busy}>
-            {busy === 'prove' ? '■ Proving…' : '▶ Prove committed RTL'}
+            {busy === 'prove' ? `■ ${t('Proving…')}` : `▶ ${t('Prove committed RTL')}`}
           </button>
         </div>
         <p className="muted small">
@@ -213,13 +215,13 @@ export function ImprovePane() {
 
       <section className="panel">
         <div className="panel-head">
-          <h2>Improvement loop</h2>
+          <h2>{t('Improvement loop')}</h2>
           <div className="tb-group">
-            <span className="tb-label">max iters</span>
+            <span className="tb-label">{t('max iters')}</span>
             <input className="iters" type="number" min={1} max={5} value={iters}
                    onChange={(e) => setIters(Math.max(1, Math.min(5, +e.target.value)))} />
             <button className="btn-run" onClick={runLoop} disabled={!!busy || !goal.trim()}>
-              {busy === 'loop' ? '■ Running…' : '▶ Run loop'}
+              {busy === 'loop' ? `■ ${t('Running…')}` : `▶ ${t('Run loop')}`}
             </button>
           </div>
         </div>
@@ -228,7 +230,7 @@ export function ImprovePane() {
           a proven candidate must be applied explicitly, and the apply re-proves it first.
         </p>
         <textarea value={goal} onChange={(e) => setGoal(e.target.value)} rows={3}
-                  placeholder="the change you want, stated as a goal" />
+                  placeholder={t('the change you want, stated as a goal')} />
         {busy === 'loop' && (
           <Busy label="Generating and proving" sec={sec} hint="each iteration runs the real regression" />
         )}
@@ -247,7 +249,7 @@ export function ImprovePane() {
                 <code>{result.proven_candidate}</code>
                 <button className="btn-run" onClick={() => apply(result.proven_candidate!)}
                         disabled={!!busy}>
-                  {busy === 'apply' ? '■ Applying…' : 'Apply to rtl/gamma.v'}
+                  {busy === 'apply' ? `■ ${t('Applying…')}` : t('Apply to rtl/gamma.v')}
                 </button>
               </div>
             )}

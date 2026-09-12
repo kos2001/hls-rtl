@@ -1,4 +1,5 @@
 import type { KbStats, QoRReport, SkillReport, VerificationResults } from './types'
+import { useT } from './i18n'
 
 /**
  * Overview — what this workbench is FOR.
@@ -37,6 +38,7 @@ const CAPABILITIES: { n: string; title: string; gap: string; view?: string }[] =
 ]
 
 export function Overview({ data, qor, skills, kb, onGo }: Props) {
+  const t = useT()
   const scSkipped = !!data?.patterns.every((p) => !p.sc_sha256)
   const failed = data?.summary.failed ?? 0
 
@@ -44,21 +46,21 @@ export function Overview({ data, qor, skills, kb, onGo }: Props) {
     {
       id: 'golden', label: 'golden', role: 'Python · numpy',
       status: 'oracle',
-      detail: 'defines the expected values — untimed, independent, cheap to re-run',
+      detail: t('defines the expected values — untimed, independent, cheap to re-run'),
     },
     {
       id: 'systemc', label: 'systemc', role: 'C++ · cycle-accurate',
       status: scSkipped ? 'skip' : failed ? 'fail' : 'pass',
       detail: scSkipped
-        ? 'skipped — build/sc_out.txt absent. Missing evidence, not a pass.'
-        : 'bit-exact against the oracle',
+        ? t('skipped — build/sc_out.txt absent. Missing evidence, not a pass.')
+        : t('bit-exact against the oracle'),
     },
     {
       id: 'rtl', label: 'rtl', role: 'Verilog-2001 · synthesizable',
       status: data ? (failed ? 'fail' : 'pass') : 'skip',
       detail: data
         ? `${data.summary.passed}/${data.summary.total_patterns} patterns, ${data.summary.total_pixels.toLocaleString()} pixels compared`
-        : 'no results loaded',
+        : t('no results loaded'),
     },
   ]
 
@@ -66,7 +68,7 @@ export function Overview({ data, qor, skills, kb, onGo }: Props) {
     <div className="view-scroll">
       <section className="thesis">
         <h1 className="thesis-claim">
-          An agent can write plausible RTL. It cannot tell you whether the RTL is right.
+          {t('An agent can write plausible RTL. It cannot tell you whether the RTL is right.')}
         </h1>
         <p className="thesis-body">
           Spec2RTL-style agents generate HDL and then have nothing to check it against —
@@ -83,8 +85,8 @@ export function Overview({ data, qor, skills, kb, onGo }: Props) {
 
       <section className="panel">
         <div className="panel-head">
-          <h2>The proof chain</h2>
-          <button className="tb-btn" onClick={() => onGo('scoreboard')}>Open scoreboard →</button>
+          <h2>{t('The proof chain')}</h2>
+          <button className="tb-btn" onClick={() => onGo('scoreboard')}>{t('Open scoreboard →')}</button>
         </div>
         <div className="rungs">
           {rungs.map((r, i) => (
@@ -112,7 +114,7 @@ export function Overview({ data, qor, skills, kb, onGo }: Props) {
       </section>
 
       <section className="panel panel-caveat">
-        <strong>What this does not prove.</strong> The regression runs under Verilator,
+        <strong>{t('What this does not prove.')}</strong> The regression runs under Verilator,
         which is 2-state. These hashes cover value equality on the listed patterns; they
         do not cover X-propagation or reset-initialization behaviour. A skipped stage is
         missing evidence, not a pass. Cross-check with{' '}
@@ -121,16 +123,16 @@ export function Overview({ data, qor, skills, kb, onGo }: Props) {
 
       <section className="panel">
         <div className="panel-head">
-          <h2>Design under verification</h2>
-          <button className="tb-btn" onClick={() => onGo('schematic')}>Open schematic →</button>
+          <h2>{t('Design under verification')}</h2>
+          <button className="tb-btn" onClick={() => onGo('schematic')}>{t('Open schematic →')}</button>
         </div>
         <div className="dut-facts">
-          <Fact k="module" v={data?.design.module ?? 'gamma'} />
-          <Fact k="throughput" v="1 pixel / cycle" />
-          <Fact k="latency" v="1 cycle (accept → valid)" />
-          <Fact k="handshake" v="ready/valid, no out_ready→in_ready path" />
-          <Fact k="elasticity" v="FIFO_DEPTH = 8 (knee of the sweep)" />
-          <Fact k="precision" v={data ? `${data.design.pixel_w}b · LUT ${data.design.lut_depth}` : '8b · LUT 256'} />
+          <Fact k={t('module')} v={data?.design.module ?? 'gamma'} />
+          <Fact k={t('throughput')} v="1 pixel / cycle" />
+          <Fact k={t('latency')} v="1 cycle (accept → valid)" />
+          <Fact k={t('handshake')} v="ready/valid, no out_ready→in_ready path" />
+          <Fact k={t('elasticity')} v="FIFO_DEPTH = 8 (knee of the sweep)" />
+          <Fact k={t('precision')} v={data ? `${data.design.pixel_w}b · LUT ${data.design.lut_depth}` : '8b · LUT 256'} />
           <Fact k="γ per channel" v={data ? Object.values(data.gammas).join(' / ') : '2.2 / 1.8 / 2.8'} />
           <Fact k="QoR" v={qor ? `${qor.score}/100 (${qor.grade})` : '—'} />
         </div>
@@ -144,8 +146,8 @@ export function Overview({ data, qor, skills, kb, onGo }: Props) {
 
       <section className="panel">
         <div className="panel-head">
-          <h2>What the workbench adds</h2>
-          <span className="muted small">each exists because a generate-then-hope loop lacks it</span>
+          <h2>{t('What the workbench adds')}</h2>
+          <span className="muted small">{t('each exists because a generate-then-hope loop lacks it')}</span>
         </div>
         <div className="caps">
           {CAPABILITIES.map((c) => (

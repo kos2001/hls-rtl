@@ -405,15 +405,28 @@ _DOCS = {
 
 
 @app.get("/doc/{name}")
-def doc(name: str) -> Dict[str, Any]:
-    """A project document by name, for rendering inside the workbench."""
+def doc(name: str, lang: str = "en") -> Dict[str, Any]:
+    """A project document by name, for rendering inside the workbench.
+
+    `lang=ko` prefers a `.ko.md` sibling and falls back to the English original
+    when none exists — a missing translation should degrade to a readable
+    document, never to a 404.
+    """
     path = _DOCS.get(name.upper())
     if path is None:
         raise HTTPException(404, f"unknown document {name!r}; have {sorted(_DOCS)}")
+    translated = False
+    if lang and lang != "en":
+        alt = path.with_suffix("").with_suffix(f".{lang}.md") if path.name.endswith(".md") \
+            else path
+        alt = path.parent / f"{path.name[:-3]}.{lang}.md"
+        if alt.exists():
+            path, translated = alt, True
     if not path.exists():
         raise HTTPException(404, f"{path.relative_to(_ROOT)} not found")
     text = path.read_text(encoding="utf-8")
     return {"name": name.upper(), "path": str(path.relative_to(_ROOT)),
+            "lang": lang if translated else "en", "translated": translated,
             "chars": len(text), "text": text}
 
 

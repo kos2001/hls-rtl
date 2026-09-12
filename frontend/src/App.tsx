@@ -2,6 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { api } from './api'
 import { Console } from './Console'
 import { HelpPane } from './Help'
+import { LangContext, readStoredLang, storeLang, useLang, useT } from './i18n'
+import type { Lang } from './i18n'
 import { ImprovePane } from './Improve'
 import { KnowledgePane } from './Knowledge'
 import { Navigator } from './Navigator'
@@ -92,40 +94,41 @@ function MenuItem({ onClick, children, accel, disabled }:
 // ---------------- scoreboard ----------------
 function Scoreboard({ data, onPick }:
   { data: VerificationResults; onPick: (p: PatternResult) => void }) {
+  const t = useT()
   const allPass = data.summary.failed === 0
   return (
     <div className="view-scroll">
       <div className="stat-strip">
         <div className={`stat ${allPass ? 'stat-ok' : 'stat-fail'}`}>
           <div className="stat-value">{allPass ? 'PASS' : 'FAIL'}</div>
-          <div className="stat-label">scoreboard verdict</div>
+          <div className="stat-label">{t('scoreboard verdict')}</div>
         </div>
         <div className="stat">
           <div className="stat-value">{data.summary.passed}/{data.summary.total_patterns}</div>
-          <div className="stat-label">patterns bit-exact</div>
+          <div className="stat-label">{t('patterns bit-exact')}</div>
         </div>
         <div className="stat">
           <div className="stat-value">{data.summary.total_pixels.toLocaleString()}</div>
-          <div className="stat-label">pixels compared</div>
+          <div className="stat-label">{t('pixels compared')}</div>
         </div>
         <div className="stat">
           <div className="stat-value">{data.design.pixel_w}b / {data.design.lut_depth}</div>
-          <div className="stat-label">pixel width / LUT depth</div>
+          <div className="stat-label">{t('pixel width / LUT depth')}</div>
         </div>
         <div className="stat">
           <div className="stat-value">{Object.values(data.gammas).join(' · ')}</div>
-          <div className="stat-label">γ per channel (R·G·B)</div>
+          <div className="stat-label">{t('γ per channel (R·G·B)')}</div>
         </div>
       </div>
 
       <div className="panel">
-        <div className="panel-head"><h2>Pattern Comparison Matrix</h2></div>
+        <div className="panel-head"><h2>{t('Pattern Comparison Matrix')}</h2></div>
         <div className="table-wrap">
           <table className="grid">
             <thead>
               <tr>
-                <th>pattern</th><th className="num">pixels</th><th>status</th>
-                <th className="num">mism.</th><th>golden sha-256</th>
+                <th>{t('pattern')}</th><th className="num">{t('pixels')}</th><th>{t('status')}</th>
+                <th className="num">{t('mism.')}</th><th>golden sha-256</th>
                 <th>rtl sha-256</th><th>systemc sha-256</th>
               </tr>
             </thead>
@@ -159,14 +162,15 @@ function Scoreboard({ data, onPick }:
 
 // ---------------- quality ----------------
 function Quality({ qor }: { qor: QoRReport | null }) {
-  if (!qor) return <div className="pane-empty muted">No QoR report — reload from the toolbar.</div>
+  const t = useT()
+  if (!qor) return <div className="pane-empty muted">{t('No QoR report — reload from the toolbar.')}</div>
   const m = qor.metrics
   const errs = qor.checks.filter((c) => !c.ok && c.severity === 'error')
   const warns = qor.checks.filter((c) => !c.ok && c.severity === 'warn')
   return (
     <div className="view-scroll">
       <div className="panel">
-        <div className="panel-head"><h2>Design Quality (QoR)</h2></div>
+        <div className="panel-head"><h2>{t('Design Quality (QoR)')}</h2></div>
         <div className="qor-head">
           <div className={`grade grade-${qor.grade}`}>{qor.grade}</div>
           <div>
@@ -190,14 +194,14 @@ function Quality({ qor }: { qor: QoRReport | null }) {
 
       <div className="panel">
         <div className="panel-head">
-          <h2>Design Rule Checks</h2>
+          <h2>{t('Design Rule Checks')}</h2>
           <span className="muted small">
             {errs.length} error · {warns.length} warning · {qor.checks.length} total
           </span>
         </div>
         <div className="table-wrap">
           <table className="grid">
-            <thead><tr><th>severity</th><th>rule</th><th>result</th><th>detail</th></tr></thead>
+            <thead><tr><th>{t('severity')}</th><th>{t('rule')}</th><th>{t('result')}</th><th>{t('detail')}</th></tr></thead>
             <tbody>
               {qor.checks.map((c) => (
                 <tr key={c.id}>
@@ -221,14 +225,15 @@ function SignoffView({ report, telemetry, busy, onRun }: {
   report: SignoffReport | null; telemetry: Telemetry | null
   busy: boolean; onRun: () => void
 }) {
+  const t = useT()
   const hist = (telemetry?.history ?? []).map((h) => h.score).filter((s): s is number => s != null)
   return (
     <div className="view-scroll">
       <div className="panel">
         <div className="panel-head">
-          <h2>Sign-off Ladder</h2>
+          <h2>{t('Sign-off Ladder')}</h2>
           <button className="btn-run" onClick={onRun} disabled={busy}>
-            {busy ? '■ Running…' : '▶ Run sign-off'}
+            {busy ? `■ ${t('Running…')}` : `▶ ${t('Run sign-off')}`}
           </button>
         </div>
         <p className="muted small">
@@ -238,7 +243,7 @@ function SignoffView({ report, telemetry, busy, onRun }: {
         </p>
         {hist.length >= 2 && (
           <div className="trend-row">
-            <span className="muted small">score trend</span><Sparkline values={hist} />
+            <span className="muted small">{t('score trend')}</span><Sparkline values={hist} />
           </div>
         )}
         {report && (
@@ -248,7 +253,7 @@ function SignoffView({ report, telemetry, busy, onRun }: {
             </div>
             <div className="table-wrap">
               <table className="grid">
-                <thead><tr><th>stage</th><th>status</th><th>gating</th><th>detail</th></tr></thead>
+                <thead><tr><th>{t('stage')}</th><th>{t('status')}</th><th>{t('gating')}</th><th>{t('detail')}</th></tr></thead>
                 <tbody>
                   {report.stages.map((s) => (
                     <tr key={s.name}>
@@ -273,6 +278,7 @@ function SignoffView({ report, telemetry, busy, onRun }: {
 
 // ---------------- flows ----------------
 function Flows() {
+  const t = useT()
   const [prog, setProg] = useState<Progressive | null>(null)
   const [refl, setRefl] = useState<Reflection | null>(null)
   const [equiv, setEquiv] = useState<EquivResult | null>(null)
@@ -344,7 +350,7 @@ function Flows() {
     <div className="view-scroll flows-grid">
       <div className="panel">
         <div className="panel-head">
-          <h2>Progressive-coding oracle</h2>
+          <h2>{t('Progressive-coding oracle')}</h2>
           <button className="btn-run" onClick={runProgressive} disabled={!!busy}>
             {busy === 'prog' ? '■ Running…' : '▶ Run 3-way'}
           </button>
@@ -352,7 +358,7 @@ function Flows() {
         <p className="muted small">golden (Python) → SystemC → RTL, each proven bit-exact by the scoreboard.</p>
         {prog && (
           <table className="grid">
-            <thead><tr><th>representation</th><th>role</th><th>verdict</th></tr></thead>
+            <thead><tr><th>{t('representation')}</th><th>{t('role')}</th><th>{t('verdict')}</th></tr></thead>
             <tbody>
               {prog.representations.map((r) => (
                 <tr key={r.name}>
@@ -368,7 +374,7 @@ function Flows() {
 
       <div className="panel">
         <div className="panel-head">
-          <h2>Adaptive reflection</h2>
+          <h2>{t('Adaptive reflection')}</h2>
           <button className="btn-run" onClick={runReflect} disabled={!!busy}>
             {busy === 'refl' ? '■ …' : '▶ Diagnose'}
           </button>
@@ -385,7 +391,7 @@ function Flows() {
 
       <div className="panel">
         <div className="panel-head">
-          <h2>Logical equivalence (LEC)</h2>
+          <h2>{t('Logical equivalence (LEC)')}</h2>
           <button className="btn-run" onClick={runEquiv} disabled={!!busy}>
             {busy === 'equiv' ? '■ Proving…' : '▶ Check'}
           </button>
@@ -404,7 +410,7 @@ function Flows() {
 
       <div className="panel">
         <div className="panel-head">
-          <h2>Graph RAG</h2>
+          <h2>{t('Graph RAG')}</h2>
           <button className="btn-run" onClick={runGraph} disabled={!!busy || !node.trim()}>
             {busy === 'graph' ? '■ …' : '▶ Explain'}
           </button>
@@ -419,7 +425,29 @@ function Flows() {
 }
 
 // ---------------- app ----------------
+/**
+ * Thin outer shell that owns the language and provides it.
+ *
+ * Separate from Workbench because a component cannot consume a context it
+ * provides in the same render — Workbench needs `useT()`, so the provider has
+ * to sit above it.
+ */
 export default function App() {
+  const [lang, setLangState] = useState<Lang>(readStoredLang)
+  const setLang = useCallback((l: Lang) => { setLangState(l); storeLang(l) }, [])
+  // Keep the document language honest for screen readers and for `lang`-aware
+  // font stacks: Korean and Latin text hint differently.
+  useEffect(() => { document.documentElement.lang = lang }, [lang])
+  return (
+    <LangContext.Provider value={{ lang, setLang }}>
+      <Workbench />
+    </LangContext.Provider>
+  )
+}
+
+function Workbench() {
+  const t = useT()
+  const { lang, setLang } = useLang()
   const [view, setView] = useState<View>('overview')
   const [health, setHealth] = useState<Health | null>(null)
   const [data, setData] = useState<VerificationResults | null>(null)
@@ -532,52 +560,65 @@ export default function App() {
           <span className="brand-mark">RTL</span>
           <span className="brand-name">Verification Workbench</span>
           <span className="brand-design">gamma</span>
-          <span className="brand-thesis">golden model as executable oracle · 3-way bit-exact</span>
+          <span className="brand-thesis">{t('golden model as executable oracle · 3-way bit-exact')}</span>
         </div>
         <Menu label="File">
-          <MenuItem onClick={loadAll} accel="⌘R">Reload all</MenuItem>
-          <MenuItem onClick={exportTranscript}>Export transcript…</MenuItem>
+          <MenuItem onClick={loadAll} accel="⌘R">{t('Reload all')}</MenuItem>
+          <MenuItem onClick={exportTranscript}>{t('Export transcript…')}</MenuItem>
           <MenuItem onClick={() => {
             const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
             const a = document.createElement('a')
             a.href = URL.createObjectURL(blob); a.download = 'results.json'; a.click()
             URL.revokeObjectURL(a.href)
-          }} disabled={!data}>Export results.json…</MenuItem>
+          }} disabled={!data}>{t('Export results.json…')}</MenuItem>
         </Menu>
         <Menu label="View">
           <MenuItem onClick={() => setShowNav((v) => !v)}>{showNav ? '✓ ' : ''}Design navigator</MenuItem>
-          <MenuItem onClick={() => setShowProps((v) => !v)}>{showProps ? '✓ ' : ''}Properties</MenuItem>
-          <MenuItem onClick={() => setConsoleOpen((v) => !v)}>{consoleOpen ? '✓ ' : ''}Transcript</MenuItem>
+          <MenuItem onClick={() => setShowProps((v) => !v)}>{showProps ? '✓ ' : ''}{t('Properties')}</MenuItem>
+          <MenuItem onClick={() => setConsoleOpen((v) => !v)}>{consoleOpen ? '✓ ' : ''}{t('Transcript')}</MenuItem>
           <MenuItem onClick={() => {
             resetPanes(shellRef.current)
             setShowNav(true); setShowProps(true); setConsoleOpen(true)
             log.info('LAYOUT', 'pane sizes reset to the fluid defaults')
-          }}>Reset layout</MenuItem>
+          }}>{t('Reset layout')}</MenuItem>
           <MenuItem onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
-            {theme === 'dark' ? 'Light' : 'Dark'} theme
+            {theme === 'dark' ? t('Light theme') : t('Dark theme')}
+          </MenuItem>
+          <MenuItem onClick={() => setLang(lang === 'ko' ? 'en' : 'ko')} accel="EN / 한">
+            {lang === 'ko' ? 'English' : '한국어'}
           </MenuItem>
         </Menu>
         <Menu label="Run">
-          <MenuItem onClick={runSignoff} disabled={!!busy}>Sign-off ladder</MenuItem>
-          <MenuItem onClick={() => setView('waveform')}>Traced simulation…</MenuItem>
-          <MenuItem onClick={() => setView('schematic')}>Elaborate schematic</MenuItem>
+          <MenuItem onClick={runSignoff} disabled={!!busy}>{t('Sign-off ladder')}</MenuItem>
+          <MenuItem onClick={() => setView('waveform')}>{t('Traced simulation…')}</MenuItem>
+          <MenuItem onClick={() => setView('schematic')}>{t('Elaborate schematic')}</MenuItem>
           <MenuItem onClick={() => setView('flows')}>Flows (LEC, reflection)…</MenuItem>
-          <MenuItem onClick={() => setView('improve')}>Self-improvement loop…</MenuItem>
-          <MenuItem onClick={() => setView('knowledge')}>Knowledge retrieval…</MenuItem>
+          <MenuItem onClick={() => setView('improve')}>{t('Self-improvement loop…')}</MenuItem>
+          <MenuItem onClick={() => setView('knowledge')}>{t('Knowledge retrieval…')}</MenuItem>
         </Menu>
         <Menu label="Help">
-          <MenuItem onClick={() => setView('help')} accel="?">User manual</MenuItem>
-          <MenuItem onClick={() => setView('overview')}>What is this?</MenuItem>
+          <MenuItem onClick={() => setView('help')} accel="?">{t('User manual')}</MenuItem>
+          <MenuItem onClick={() => setView('overview')}>{t('What is this?')}</MenuItem>
           <MenuItem onClick={() => {
             log.info('ABOUT', 'gamma verification workbench — golden(Python) / SystemC / RTL 3-way bit-exact scoreboard')
             log.note('ABOUT', 'open-source flow: verilator, icarus, cocotb, yosys, sby')
             setConsoleOpen(true)
-          }}>About</MenuItem>
+          }}>{t('About')}</MenuItem>
         </Menu>
 
         <div className="menubar-right">
+          <div className="lang-toggle" role="group" aria-label="language">
+            {(['en', 'ko'] as Lang[]).map((l) => (
+              <button key={l}
+                      className={`lang-btn ${lang === l ? 'lang-on' : ''}`}
+                      onClick={() => setLang(l)}
+                      aria-pressed={lang === l}>
+                {l === 'en' ? 'EN' : '한'}
+              </button>
+            ))}
+          </div>
           <span className={`conn ${health ? 'conn-ok' : 'conn-bad'}`}>
-            {health ? 'connected' : 'offline'}
+            {health ? t('connected') : t('offline')}
           </span>
         </div>
       </div>
@@ -585,18 +626,18 @@ export default function App() {
       {/* ---- toolbar ---- */}
       <div className="toolbar">
         <button className="tool" onClick={loadAll} disabled={!!busy} title="Reload all data">
-          <span className="tool-ico">↻</span>Reload
+          <span className="tool-ico">↻</span>{t('Reload')}
         </button>
         <span className="tool-sep" />
         <button className="tool" onClick={() => setView('waveform')} title="Waveform viewer">
-          <span className="tool-ico">◠</span>Waveform
+          <span className="tool-ico">◠</span>{t('Waveform')}
         </button>
         <button className="tool" onClick={() => setView('schematic')} title="RTL schematic">
-          <span className="tool-ico">▦</span>Schematic
+          <span className="tool-ico">▦</span>{t('Schematic')}
         </button>
         <span className="tool-sep" />
         <button className="tool tool-primary" onClick={runSignoff} disabled={!!busy}>
-          <span className="tool-ico">▶</span>{busy === 'signoff' ? 'Running sign-off…' : 'Run sign-off'}
+          <span className="tool-ico">▶</span>{busy === 'signoff' ? t('Running sign-off…') : t('Run sign-off')}
         </button>
         <div className="toolbar-right">
           {skills && (
@@ -641,7 +682,7 @@ export default function App() {
             )}
             {view === 'scoreboard' && (data
               ? <Scoreboard data={data} onPick={(p) => setSel({ kind: 'pattern', id: p.name, data: p })} />
-              : <div className="pane-empty muted">Loading verification results…</div>)}
+              : <div className="pane-empty muted">{t('Loading verification results…')}</div>)}
             {view === 'waveform' && <WaveformPane />}
             {view === 'schematic' && (
               <SchematicPane onSelect={(n: SchematicNode) => setSel({
@@ -691,19 +732,19 @@ export default function App() {
 
       {/* ---- status bar ---- */}
       <div className="statusbar">
-        <span className="sb-item">design: <b>{data?.design.module ?? 'gamma'}</b></span>
+        <span className="sb-item">{t('design')}: <b>{data?.design.module ?? 'gamma'}</b></span>
         <span className="sb-item">
-          scoreboard: <b className={data?.summary.failed ? 'sb-fail' : 'sb-ok'}>
+          {t('scoreboard')}: <b className={data?.summary.failed ? 'sb-fail' : 'sb-ok'}>
             {data ? `${data.summary.passed}/${data.summary.total_patterns}` : '—'}
           </b>
         </span>
         <span className="sb-item">QoR: <b>{qor ? `${qor.score} (${qor.grade})` : '—'}</b></span>
-        <span className="sb-item">profile: <b>{skills?.profile ?? '—'}</b></span>
+        <span className="sb-item">{t('profile')}: <b>{skills?.profile ?? '—'}</b></span>
         <span className="sb-item">kb: <b>{kb ? `${kb.chunks} psg` : '—'}</b></span>
-        <span className="sb-item">model: <b>{health?.model ?? '—'}</b></span>
+        <span className="sb-item">{t('model')}: <b>{health?.model ?? '—'}</b></span>
         <span className="sb-spacer" />
         {busy && <span className="sb-item sb-busy"><i className="spinner" />{busy}…</span>}
-        <span className="sb-item muted">{updatedAt ? `updated ${updatedAt.toLocaleTimeString()}` : 'loading…'}</span>
+        <span className="sb-item muted">{updatedAt ? `${t('updated')} ${updatedAt.toLocaleTimeString()}` : t('loading…')}</span>
       </div>
     </div>
   )

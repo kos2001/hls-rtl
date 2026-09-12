@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import { log, traced } from './log'
 import type { Schematic as Schem, SchematicEdge, SchematicNode } from './types'
+import { useT } from './i18n'
 
 /**
  * RTL schematic view — the netlist drawn left-to-right by layer, the way a
@@ -67,6 +68,7 @@ function path(a: Placed, b: Placed): string {
 }
 
 export function SchematicPane({ onSelect }: { onSelect?: (n: SchematicNode) => void }) {
+  const t = useT()
   const [g, setG] = useState<Schem | null>(null)
   const [busy, setBusy] = useState(false)
   const [sel, setSel] = useState<string | null>(null)
@@ -128,13 +130,13 @@ export function SchematicPane({ onSelect }: { onSelect?: (n: SchematicNode) => v
           <button className="tb-btn" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }) }}>⤢ Fit</button>
         </div>
         <div className="tb-group">
-          <span className="tb-label">cells</span><span className="tb-readout">{g?.node_count ?? '—'}</span>
-          <span className="tb-label">nets</span><span className="tb-readout">{g?.edge_count ?? '—'}</span>
-          <span className="tb-label">levels</span><span className="tb-readout">{g?.layers ?? '—'}</span>
+          <span className="tb-label">{t('cells')}</span><span className="tb-readout">{g?.node_count ?? '—'}</span>
+          <span className="tb-label">{t('nets')}</span><span className="tb-readout">{g?.edge_count ?? '—'}</span>
+          <span className="tb-label">{t('levels')}</span><span className="tb-readout">{g?.layers ?? '—'}</span>
         </div>
         <div className="tb-group tb-right">
           <Legend />
-          <button className="tb-btn" onClick={load} disabled={busy}>{busy ? 'Elaborating…' : '↻ Re-elaborate'}</button>
+          <button className="tb-btn" onClick={load} disabled={busy}>{busy ? t('Elaborating…') : `↻ ${t('Re-elaborate')}`}</button>
         </div>
       </div>
 
@@ -207,11 +209,12 @@ const LEGEND: [string, string][] = [
 ]
 
 function Legend() {
+  const t = useT()
   return (
     <span className="sch-legend">
       {LEGEND.map(([cls, label]) => (
         <span key={cls} className="sch-legend-item">
-          <i className={`sch-swatch sch-sw-${cls}`} />{label}
+          <i className={`sch-swatch sch-sw-${cls}`} />{t(label)}
         </span>
       ))}
     </span>

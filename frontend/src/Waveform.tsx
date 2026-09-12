@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { api } from './api'
 import { log, traced } from './log'
 import type { WaveSignal, Waveform as Wave } from './types'
+import { useT } from './i18n'
 
 /**
  * Waveform viewer, in the shape engineers know from Verdi / SimVision:
@@ -47,6 +48,7 @@ function css(el: HTMLElement, name: string, fallback: string): string {
 }
 
 export function WaveformPane({ onSelect }: { onSelect?: (name: string) => void }) {
+  const t = useT()
   const [wave, setWave] = useState<Wave | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [cursor, setCursor] = useState(0)
@@ -282,12 +284,12 @@ export function WaveformPane({ onSelect }: { onSelect?: (name: string) => void }
   if (wave && !wave.available) {
     return (
       <div className="pane-empty">
-        <p>No waveform dump yet.</p>
+        <p>{t('No waveform dump yet.')}</p>
         <p className="muted small">
           The regression only traces when built with <code>WAVES=1</code> (~30% slower).
         </p>
         <button onClick={regenerate} disabled={!!busy}>
-          {busy ? 'Running traced regression…' : 'Run traced regression'}
+          {busy ? t('Running traced regression…') : t('Run traced regression')}
         </button>
       </div>
     )
@@ -297,14 +299,14 @@ export function WaveformPane({ onSelect }: { onSelect?: (name: string) => void }
     <div className="wave">
       <div className="pane-toolbar">
         <div className="tb-group">
-          <button className="tb-btn" onClick={() => zoom(0.5)} title="Zoom in">⊕</button>
-          <button className="tb-btn" onClick={() => zoom(2)} title="Zoom out">⊖</button>
-          <button className="tb-btn" onClick={fit} title="Zoom fit">⤢ Fit</button>
+          <button className="tb-btn" onClick={() => zoom(0.5)} title={t('Zoom in')}>⊕</button>
+          <button className="tb-btn" onClick={() => zoom(2)} title={t('Zoom out')}>⊖</button>
+          <button className="tb-btn" onClick={fit} title={t('Zoom fit')}>⤢ Fit</button>
         </div>
         <div className="tb-group">
-          <span className="tb-label">cursor</span>
+          <span className="tb-label">{t('cursor')}</span>
           <span className="tb-readout">{cursor.toLocaleString()} {unit}</span>
-          <span className="tb-label">window</span>
+          <span className="tb-label">{t('window')}</span>
           <span className="tb-readout">
             {view.start.toLocaleString()} – {Math.round(view.start + view.span).toLocaleString()} {unit}
           </span>
@@ -312,14 +314,14 @@ export function WaveformPane({ onSelect }: { onSelect?: (name: string) => void }
         <div className="tb-group tb-right">
           {wave?.truncated && <span className="pill pill-warn">truncated</span>}
           <button className="tb-btn" onClick={regenerate} disabled={!!busy}>
-            {busy === 'regenerating' ? 'Re-simulating…' : '↻ Re-simulate'}
+            {busy === 'regenerating' ? t('Re-simulating…') : `↻ ${t('Re-simulate')}`}
           </button>
         </div>
       </div>
 
       <div className="wave-body" ref={wrapRef}>
         <div className="wave-names" style={{ width: NAME_W }}>
-          <div className="wave-names-head" style={{ height: RULER_H }}>signal</div>
+          <div className="wave-names-head" style={{ height: RULER_H }}>{t('signal')}</div>
           {signals.map((s) => (
             <button
               key={s.name}
@@ -343,7 +345,7 @@ export function WaveformPane({ onSelect }: { onSelect?: (name: string) => void }
         />
 
         <div className="wave-values" style={{ width: VALUE_W }}>
-          <div className="wave-names-head" style={{ height: RULER_H }}>value</div>
+          <div className="wave-names-head" style={{ height: RULER_H }}>{t('value')}</div>
           {signals.map((s) => {
             const v = valueAt(s, cursor)
             const bad = /[xz]/.test(v)
@@ -358,7 +360,7 @@ export function WaveformPane({ onSelect }: { onSelect?: (name: string) => void }
 
       {params.length > 0 && (
         <div className="wave-params">
-          <span className="tb-label">parameters</span>
+          <span className="tb-label">{t('parameters')}</span>
           {params.map((p) => (
             <span key={p.name} className="wave-param" title={`${p.name}[${p.width - 1}:0] = ${p.value}`}>
               <b>{p.name}</b>

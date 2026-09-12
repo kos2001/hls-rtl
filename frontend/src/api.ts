@@ -133,7 +133,8 @@ export const api = {
   schematic: () => request<Schematic>('/schematic'),
 
   /** A project document (MANUAL / UARCH / TESTPLAN / README) for in-app reading. */
-  doc: (name: string) => request<DocFile>(`/doc/${encodeURIComponent(name)}`),
+  doc: (name: string, lang = 'en') =>
+    request<DocFile>(`/doc/${encodeURIComponent(name)}?lang=${encodeURIComponent(lang)}`),
 
   /** docs/UARCH.md — the planner's real design input. */
   uarch: () => request<Uarch>('/uarch'),
