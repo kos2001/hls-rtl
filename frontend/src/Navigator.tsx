@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { SkillReport, VerificationResults } from './types'
+import { useT } from './i18n'
 
 /**
  * Design navigator — the left-hand hierarchy pane of an EDA tool.
@@ -48,12 +49,13 @@ function Group({ label, count, children, defaultOpen = true }:
 }
 
 export function Navigator({ data, skills, selected, onSelect }: Props) {
+  const t = useT()
   const isSel = (kind: NavSelection['kind'], id: string) =>
     selected?.kind === kind && selected.id === id
 
   return (
     <nav className="navigator">
-      <div className="nav-title">Design Navigator</div>
+      <div className="nav-title">{t('Design navigator')}</div>
 
       <Group label={data?.design.module ?? 'gamma'} count="top">
         <button className={`nav-item ${isSel('design', 'top') ? 'nav-sel' : ''}`}

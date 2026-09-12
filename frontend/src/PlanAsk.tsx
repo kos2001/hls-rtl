@@ -5,6 +5,7 @@ import { log, traced } from './log'
 import { Busy, useElapsed } from './ui'
 import { Citations } from './Knowledge'
 import type { KbChunk, SkillReport, Uarch } from './types'
+import { useT } from './i18n'
 
 const AGENT_HINT = 'agent loop can take ~30-60s'
 
@@ -74,6 +75,7 @@ const PLAN_LEGEND: [PlanStep['tag'], string][] = [
 ]
 
 export function PlanTab({ gatewayReady }: { gatewayReady: boolean }) {
+  const t = useT()
   // The planner's input is the real spec, not a paraphrase of it. A two-line
   // placeholder produced plans against a design that does not exist; loading
   // docs/UARCH.md means a plan is written against the contract the RTL actually
@@ -123,7 +125,7 @@ export function PlanTab({ gatewayReady }: { gatewayReady: boolean }) {
           {!gatewayReady && ' Requires the Hermes Gateway key.'}
         </p>
         <div className="spec-row">
-          <span className="fld-label">uArch specification (read-only input)</span>
+          <span className="fld-label">{t('uArch specification (read-only input)')}</span>
           <span className={`pill ${spec ? 'pill-ok' : 'pill-warn'}`}>
             {spec ? `${spec.path} · ${spec.chars.toLocaleString()} chars` : 'docs/UARCH.md unavailable'}
           </span>
@@ -132,13 +134,13 @@ export function PlanTab({ gatewayReady }: { gatewayReady: boolean }) {
           The full spec is sent as the planner's input; edit only the delta below.
           Steps are tagged against its sections so regeneration touches what moved.
         </p>
-        <label className="fld-label">CHANGED — the proposal</label>
+        <label className="fld-label">{t('CHANGED — the proposal')}</label>
         <textarea value={delta} onChange={(e) => setDelta(e.target.value)} rows={4} />
         <label className="fld-label">Algorithm reference (Python golden)</label>
         <textarea value={algo} onChange={(e) => setAlgo(e.target.value)} rows={3} />
         <div className="chat-actions">
           <button onClick={generate} disabled={busy || !delta.trim()}>
-            {busy ? 'Planning…' : 'Generate plan'}
+            {busy ? t('Planning…') : t('Generate plan')}
           </button>
         </div>
         {busy && <Busy label="Planner running via Hermes Gateway" sec={sec} hint={AGENT_HINT} />}
@@ -147,7 +149,7 @@ export function PlanTab({ gatewayReady }: { gatewayReady: boolean }) {
 
       <section className="card plan-result">
         <div className="plan-result-head">
-          <h2>Implementation plan</h2>
+          <h2>{t('Implementation plan')}</h2>
           {steps.length > 0 && (
             <div className="pill-row">
               {PLAN_LEGEND.filter(([t]) => counts[t as string]).map(([t]) => (
@@ -157,7 +159,7 @@ export function PlanTab({ gatewayReady }: { gatewayReady: boolean }) {
           )}
         </div>
         {!plan && !busy && (
-          <p className="muted small">No plan yet — describe the uArch change and generate.</p>
+          <p className="muted small">{t('No plan yet — describe the uArch change and generate.')}</p>
         )}
         {steps.length > 0 && (
           <div className="steps">{steps.map((s) => <StepCard key={s.n} step={s} />)}</div>
@@ -181,6 +183,7 @@ interface ChatMsg {
 
 export function ChatPanel({ gatewayReady, skills }:
   { gatewayReady: boolean; skills?: SkillReport | null }) {
+  const t = useT()
   const [message, setMessage] = useState('')
   const [history, setHistory] = useState<ChatMsg[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -215,11 +218,11 @@ export function ChatPanel({ gatewayReady, skills }:
   return (
     <section className="card chat">
       <div className="signoff-head">
-        <h2>Ask Hermes</h2>
+        <h2>{t('Ask Hermes')}</h2>
         {history.length > 0 && (
           <button className="btn-ghost"
             onClick={() => { setHistory([]); setError(null); setSession(crypto.randomUUID()) }}>
-            Clear (new session)
+            {t('Clear (new session)')}
           </button>
         )}
       </div>

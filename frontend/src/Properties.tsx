@@ -1,5 +1,6 @@
 import type { NavSelection } from './Navigator'
 import type { PatternResult, QoRReport, SkillInfo } from './types'
+import { useT } from './i18n'
 
 /**
  * Properties / object inspector — the right-hand pane of an EDA GUI.
@@ -19,12 +20,13 @@ function Row({ k, v, mono = true }: { k: string; v: React.ReactNode; mono?: bool
 }
 
 export function Properties({ sel, qor }: { sel: NavSelection | null; qor: QoRReport | null }) {
+  const t = useT()
   return (
     <aside className="properties">
-      <div className="nav-title">Properties</div>
+      <div className="nav-title">{t('Properties')}</div>
       {!sel && (
         <p className="muted small prop-empty">
-          Select an object in the navigator, or click a cell in the schematic.
+          {t('Select an object in the navigator, or click a cell in the schematic.')}
         </p>
       )}
       {sel && <Body sel={sel} qor={qor} />}

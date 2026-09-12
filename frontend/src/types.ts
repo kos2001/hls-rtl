@@ -268,6 +268,9 @@ export interface DocFile {
   path: string
   chars: number
   text: string
+  /** Language actually served — may be 'en' even when 'ko' was asked for. */
+  lang?: string
+  translated?: boolean
 }
 
 // ---------- Self-improvement loop ----------

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from './api'
 import { log, traced } from './log'
 import type { KbChunk, KbStats } from './types'
+import { useT } from './i18n'
 
 /**
  * Knowledge-base browser — what the agent is actually given as grounding.
@@ -42,6 +43,7 @@ function Hit({ c, rank }: { c: KbChunk; rank: number }) {
 }
 
 export function KnowledgePane() {
+  const t = useT()
   const [stats, setStats] = useState<KbStats | null>(null)
   const [q, setQ] = useState(SAMPLES[0])
   const [hits, setHits] = useState<KbChunk[] | null>(null)
@@ -72,7 +74,7 @@ export function KnowledgePane() {
     <div className="view-scroll">
       <div className="panel">
         <div className="panel-head">
-          <h2>Knowledge Base</h2>
+          <h2>{t('Knowledge Base')}</h2>
           <span className="muted small">
             {stats ? `${stats.chunks} passages · ${stats.terms} terms · ${stats.retrieval}` : 'loading…'}
           </span>
@@ -90,10 +92,10 @@ export function KnowledgePane() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void run() }}
-            placeholder="ask what the agent would be asked…"
+            placeholder={t('ask what the agent would be asked…')}
           />
           <button className="btn-run" onClick={() => void run()} disabled={busy || !q.trim()}>
-            {busy ? '■ …' : '▶ Retrieve'}
+            {busy ? '■ …' : `▶ ${t('Retrieve')}`}
           </button>
         </div>
         <div className="kb-samples">
@@ -106,7 +108,7 @@ export function KnowledgePane() {
       {hits && (
         <div className="panel">
           <div className="panel-head">
-            <h2>Retrieved passages</h2>
+            <h2>{t('Retrieved passages')}</h2>
             <span className="muted small">{hits.length} ranked by BM25 + exact-symbol bonus</span>
           </div>
           {hits.length === 0
@@ -119,10 +121,10 @@ export function KnowledgePane() {
       )}
 
       <div className="panel">
-        <div className="panel-head"><h2>Index composition</h2></div>
+        <div className="panel-head"><h2>{t('Index composition')}</h2></div>
         <div className="table-wrap">
           <table className="grid">
-            <thead><tr><th>source</th><th className="num">passages</th></tr></thead>
+            <thead><tr><th>{t('source')}</th><th className="num">{t('passages')}</th></tr></thead>
             <tbody>
               {sourceRows.map(([src, n]) => (
                 <tr key={src}><td className="mono">{src}</td><td className="num">{n}</td></tr>
