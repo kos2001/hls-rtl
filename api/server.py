@@ -36,6 +36,7 @@ from gen_dashboard_data import build_results  # noqa: E402
 # Imported after the path setup above (oracle pulls in the golden model).
 from . import oracle as oracle_mod  # noqa: E402
 from . import rtl_segments, reflection, equiv as equiv_mod, agents  # noqa: E402
+from . import skills as skills_mod, waveform as waveform_mod, schematic as schematic_mod  # noqa: E402
 from . import graph_rag  # noqa: E402
 
 app = FastAPI(title="Gamma Verification API", version="0.1.0")
@@ -344,6 +345,58 @@ def graph_explain(node: str, budget: int = 1500) -> Dict[str, Any]:
 def graph_query(q: str, budget: int = 2000, dfs: bool = False) -> Dict[str, Any]:
     """Traverse the repo knowledge graph for a concept/relationship."""
     return graph_rag.query(q, budget=budget, dfs=dfs)
+
+
+# ---- Hermes skills (what the agent can actually load) ----
+@app.get("/skills")
+def skills_route(refresh: bool = False) -> Dict[str, Any]:
+    """Which skills the gateway's serving profile really has, vs. what this
+    project wants. `source: "repo-only"` means the skill is authored in skills/
+    but not yet synced — run scripts/sync_hermes_skills.py."""
+    return skills_mod.report(refresh=refresh).to_dict()
+
+
+# ---- Waveform (Verdi/SimVision-style viewer data) ----
+@app.get("/waveform/status")
+def waveform_status() -> Dict[str, Any]:
+    return waveform_mod.dump_status()
+
+
+class WaveRunIn(BaseModel):
+    regenerate: bool = False
+    bp_profile: str = "single"
+
+
+@app.post("/waveform/run")
+def waveform_run(req: WaveRunIn) -> Dict[str, Any]:
+    """Ensure a VCD exists, running the traced (WAVES=1) regression if needed.
+    Tracing costs ~30% sim time, so an existing dump is reused unless
+    `regenerate` is set."""
+    return waveform_mod.ensure_dump(regenerate=req.regenerate,
+                                    bp_profile=req.bp_profile)
+
+
+@app.get("/waveform")
+def waveform_route(scope: Optional[str] = None, start: int = 0,
+                   end: Optional[int] = None,
+                   max_transitions: int = 20000) -> Dict[str, Any]:
+    """A drawable window of the dump: signals plus their value changes.
+    Times are in the dump's own units (ps for the Verilator trace)."""
+    return waveform_mod.extract(scope=scope, start=start, end=end,
+                                max_transitions=max_transitions)
+
+
+# ---- Schematic (RTL netlist graph) ----
+@app.get("/schematic")
+def schematic_route(top: str = "gamma", max_nodes: int = 400) -> Dict[str, Any]:
+    """Layered RTL-level netlist graph (yosys proc + opt_clean) for the
+    schematic view. Cells carry their source line for cross-probing."""
+    return schematic_mod.build(top=top, max_nodes=max_nodes)
+
+
+@app.post("/schematic")
+def schematic_post(req: CodeIn, top: str = "gamma") -> Dict[str, Any]:
+    return schematic_mod.build(req.code, top=top)
 
 
 @app.post("/chat", response_model=ChatOut)

@@ -13,3 +13,6 @@ frontend/dist/
 .DS_Store
 .pytest_cache/
 .playwright-mcp/
+
+# cocotb/Verilator waveform dump (WAVES=1); regenerate with make -C tb WAVES=1
+tb/dump.vcd

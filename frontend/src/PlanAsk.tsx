@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { renderMD } from './md'
+import { log, traced } from './log'
 import { Busy, useElapsed } from './ui'
+import type { SkillReport } from './types'
 
 const AGENT_HINT = 'agent loop can take ~30-60s'
 
@@ -82,9 +84,17 @@ export function PlanTab({ gatewayReady }: { gatewayReady: boolean }) {
 
   async function generate() {
     setBusy(true); setErr(null); setPlan(null)
-    try { setPlan((await api.plan(uarch, algo)).plan) }
-    catch (e) { setErr(e instanceof Error ? e.message : String(e)) }
-    finally { setBusy(false) }
+    const r = await traced(
+      { stage: 'plan', tool: 'hermes-gateway', design: 'gamma', cmd: 'plan --uarch --algorithm' },
+      () => api.plan(uarch, algo),
+      (v) => {
+        log.info('PLAN', `${v.plan.split('\n').length} lines returned`)
+        return { status: 'pass' }
+      },
+    ).catch(() => null)
+    if (r) setPlan(r.plan)
+    else setErr('planner call failed — see the transcript for the error')
+    setBusy(false)
   }
 
   const steps = plan ? parsePlan(plan) : []
@@ -148,7 +158,8 @@ interface ChatMsg {
   content: string
 }
 
-export function ChatPanel({ gatewayReady }: { gatewayReady: boolean }) {
+export function ChatPanel({ gatewayReady, skills }:
+  { gatewayReady: boolean; skills?: SkillReport | null }) {
   const [message, setMessage] = useState('')
   const [history, setHistory] = useState<ChatMsg[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -168,14 +179,15 @@ export function ChatPanel({ gatewayReady }: { gatewayReady: boolean }) {
     if (!q || busy) return
     setBusy(true); setError(null); setMessage('')
     setHistory((h) => [...h, { role: 'user', content: q }])
-    try {
-      const res = await api.chat(q, session)
-      setHistory((h) => [...h, { role: 'assistant', content: res.content }])
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-    }
+    const res = await traced(
+      { stage: 'assistant', tool: 'hermes-gateway', design: 'gamma',
+        cmd: `chat --session ${session.slice(0, 8)} "${q.slice(0, 60)}${q.length > 60 ? '…' : ''}"` },
+      () => api.chat(q, session),
+      (v) => ({ status: 'pass', extra: `${v.content.length} chars` }),
+    ).catch(() => null)
+    if (res) setHistory((h) => [...h, { role: 'assistant', content: res.content }])
+    else setError('gateway call failed — see the transcript for the error')
+    setBusy(false)
   }
 
   return (
@@ -190,8 +202,14 @@ export function ChatPanel({ gatewayReady }: { gatewayReady: boolean }) {
         )}
       </div>
       <p className="muted small">
-        RTL-assistant via the Hermes Gateway, grounded in the EDA skills
-        (systemverilog · fpga · ppa-closure-agent).
+        RTL-assistant via the Hermes Gateway
+        {skills?.active.length
+          ? <>, grounded in {skills.active.length} loaded skill
+              {skills.active.length > 1 ? 's' : ''} (<code>{skills.active.join(' · ')}</code>)</>
+          : ', with no agent skills loaded'}.
+        {skills?.missing.length
+          ? ` ${skills.missing.length} wanted skill(s) are not installed in profile ${skills.profile} — run scripts/sync_hermes_skills.py.`
+          : ''}
         {!gatewayReady && ' Set HERMES_GATEWAY_API_KEY to enable.'}
       </p>
 
