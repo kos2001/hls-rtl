@@ -48,6 +48,7 @@ cd frontend && npm install && npm run dev
 | **Verilator ≥ 5.0** | 시뮬레이션, lint | 스코어보드가 번들 스냅샷으로 대체됨 |
 | **yosys** | QoR, schematic, LEC | 해당 뷰가 *unavailable* 표시 (실패가 아님) |
 | **SymbiYosys** (`sby`) + 솔버 | 게이트의 formal 단계 | 그 단계가 **skip** — 통과가 아니라 증거 없음 |
+| **SystemC** (`brew install systemc`) | 3-way 스코어보드의 세 번째 모델 | 그 비교가 **skip**되어 스코어보드가 조용히 2-way가 됨 — `scripts/build_systemc.sh`로 빌드 |
 | **Icarus Verilog** | 게이트의 4-state 단계 | 그 단계가 **skip** — X·리셋 초기화 버그를 탐지할 수 없게 됨 |
 | SystemC 2.3.x | SystemC 단 | 해당 열이 **skipped** |
 | Hermes Gateway | Assistant, Planner | 해당 기능만 503, 나머지는 정상 |
@@ -180,7 +181,9 @@ cocotb 3-way 회귀이며 몇 초 걸립니다.
 - **증거 공백** — 순위화, 결정적, 게이트웨이 불필요. 이미 전부 통과 중일 때 "다음에
   뭘 개선할까"의 정직한 답입니다. 다음 단계는 대개 RTL이 아니라 증거입니다.
 - **Prove committed RTL** — `rtl/gamma.v`에 대해 게이트를 실행합니다: lint → design
-  → synthesize → 실제 cocotb 회귀 → **configs** → **4-state** → **formal**.
+  → synthesize → **SystemC** → 실제 cocotb 회귀 → **configs** → **4-state**
+  → **formal**. SystemC 단계가 세 번째 모델을 다시 빌드·실행해서, 뒤따르는
+  스코어보드가 이름만 3-way가 아니라 실제로 3-way가 되게 합니다.
   LLM은 어디에도 없습니다. `configs` 단계는 `LUT_SYNC_READ=1`로 bit-exact 비교를
   다시 돌립니다. 그 `generate` 분기는 기본 설정에서 elaborate되지 않아, 이 단계가
   없으면 등록형 LUT 읽기 경로 전체에 커버리지가 없습니다 — 변이 테스트가 찾아낸

@@ -38,6 +38,7 @@ from . import oracle as oracle_mod  # noqa: E402
 from . import rtl_segments, reflection, equiv as equiv_mod, agents  # noqa: E402
 from . import skills as skills_mod, waveform as waveform_mod, schematic as schematic_mod  # noqa: E402
 from . import knowledge as kb, improve as improve_mod, mutate as mutate_mod  # noqa: E402
+from . import coverage as coverage_mod  # noqa: E402
 from . import graph_rag  # noqa: E402
 
 app = FastAPI(title="Gamma Verification API", version="0.1.0")
@@ -379,6 +380,18 @@ def improve_mutate(req: MutateIn) -> Dict[str, Any]:
     mutant, so `limit` is there to keep an interactive run interactive."""
     return mutate_mod.run(limit=req.limit, operators=req.operators,
                           bp_profile=req.bp_profile)
+
+
+@app.get("/coverage")
+def coverage_route(bp_profile: str = "single") -> Dict[str, Any]:
+    """Line coverage from an instrumented Verilator run.
+
+    `never-executed` is the signal worth acting on. `partial` frequently
+    reflects how Verilator attributes branch points to declaration lines, and
+    the elaboration guards in the `translate_off` block are exempt — they fire
+    only on an illegal parameterisation, so requiring them would mean the only
+    route to 100% is to break the design."""
+    return coverage_mod.run(bp_profile=bp_profile)
 
 
 @app.get("/improve/audit")

@@ -123,10 +123,17 @@ uvicorn api.server:app --host 127.0.0.1 --port 8012
 cd frontend && npm install && npm run dev
 ```
 
-Prerequisites: Python 3.10+, Verilator ≥ 5.0, yosys (QoR/LEC/schematic),
-optionally SystemC 2.3.x (`SYSTEMC_HOME`) — the SystemC comparison is **skipped,
-not failed**, when `build/sc_out.txt` is absent, and the workbench reports it as
-skipped.
+```sh
+scripts/build_systemc.sh                 # the third model (brew install systemc)
+sby -f formal/gamma.sby prove            # unbounded proof of the handshake
+```
+
+Prerequisites: Python 3.10+, Verilator ≥ 5.0, yosys (QoR/LEC/schematic), and —
+each closing one rung of evidence — SystemC (third model), Icarus (4-state),
+SymbiYosys (formal). **A missing tool degrades exactly one stage and says so**;
+it never fails the gate and never passes silently. The SystemC comparison is
+*skipped, not failed*, when `build/sc_out.txt` is absent, and a skip is missing
+evidence, not a pass.
 
 ## Extending
 
@@ -135,6 +142,8 @@ skipped.
   `docs/UARCH.md` §7 has the table.
 - **New pattern** — append to `tb/test_set.py`. Order is a contract:
   `build/sc_out.txt` is consumed sequentially, so never insert or reorder.
-- **Stronger evidence** — the gaps are named in `TESTPLAN.md`: a 4-state pass
-  (Icarus), formal invariants (SymbiYosys), and mutation coverage (MCY) are the
-  three that would most change what the scoreboard actually proves.
+- **Stronger evidence** — `GET /improve/audit` ranks what is missing, and the
+  gate now runs what used to be on that list: the SystemC rung, a 4-state pass
+  under Icarus, an unbounded formal proof of the handshake, the non-default
+  `LUT_SYNC_READ=1` configuration, and a mutation campaign that measures whether
+  any of it would catch a bug.
