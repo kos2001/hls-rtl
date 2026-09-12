@@ -20,9 +20,14 @@ harness drives `prove()` and reports WHICH stage caught each mutant.
 
 Cost
 ----
-The gate takes ~17s, so a run is minutes, not seconds. Stages stop at the first
+The gate takes ~25s, so a run is minutes, not seconds. Stages stop at the first
 one that catches a mutant, which is also what makes "caught by" meaningful:
 whatever reports the fault first is the cheapest thing that could have found it.
+
+Mutants are proved in SEQUENCE, deliberately. The gate's stages share
+`build/sc_out.txt`, the SystemC binary and `tb/`, so parallel proofs interfere
+and produce verdicts that belong to neither candidate. Running a campaign
+alongside any other `prove()` has the same effect.
 """
 from __future__ import annotations
 
@@ -37,8 +42,8 @@ _ROOT = Path(__file__).resolve().parents[1]
 _RTL = _ROOT / "rtl" / "gamma.v"
 
 # Order matters only for reporting; each stage is the first that can see a fault.
-STAGE_ORDER = ("lint", "design", "synthesize", "simulate", "configs",
-               "4state", "formal")
+STAGE_ORDER = ("lint", "design", "synthesize", "systemc", "simulate",
+               "configs", "4state", "formal")
 
 
 @dataclass

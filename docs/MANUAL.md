@@ -47,6 +47,7 @@ cd frontend && npm install && npm run dev
 | Tool | Needed for | Without it |
 |---|---|---|
 | **SymbiYosys** (`sby`) + a solver | formal stage of the gate | that stage reports **skip** — missing evidence, not a pass |
+| **SystemC** (`brew install systemc`) | the third model in the 3-way scoreboard | that comparison is **skipped** and the scoreboard silently becomes 2-way — build with `scripts/build_systemc.sh` |
 | Python 3.10+, `cocotb<2.0` | the regression | nothing works |
 | **Verilator ≥ 5.0** | simulation, lint | Scoreboard falls back to the bundled snapshot |
 | **yosys** | QoR, schematic, LEC | those views report *unavailable*, not a failure |
@@ -187,8 +188,10 @@ converges on plausibility, so here the **oracle decides, not the model**.
   honest answer to "what should improve next" when everything already passes:
   the next step is rarely more RTL, it is closing a gap in evidence.
 - **Prove committed RTL** — runs the gate against `rtl/gamma.v`: lint → design →
-  synthesize → the real cocotb regression → **configs** → **4-state** →
-  **formal**. No LLM anywhere in it. The `configs` stage re-runs the bit-exact
+  synthesize → **SystemC** → the real cocotb regression → **configs** →
+  **4-state** → **formal**. The SystemC stage rebuilds and reruns the third
+  model so the scoreboard that follows really is 3-way rather than skipping a
+  rung and keeping its name. No LLM anywhere in it. The `configs` stage re-runs the bit-exact
   comparison with `LUT_SYNC_READ=1`: that `generate` branch is not elaborated by
   default, so without it the whole registered-LUT-read path has no coverage —
   which is how mutation testing found it. The 4-state stage re-runs the same tests under Icarus, which

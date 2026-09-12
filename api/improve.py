@@ -52,6 +52,8 @@ _TB = _ROOT / "tb"
 _RTL = _ROOT / "rtl" / "gamma.v"
 _WORK = _ROOT / "build" / "improve"
 _FORMAL = _ROOT / "formal"
+_BUILD = _ROOT / "build"
+_SCRIPTS = _ROOT / "scripts"
 
 # "[edge_cases/env] RTL vs golden: OK (24 pixels, hash=c695...)"
 # "[edge_cases/env] RTL vs golden: MISMATCH at idx=18 got=[199, 0, 255] ref=[186, 0, 255] (4/24 pixels differ)"
@@ -110,6 +112,7 @@ class Proof:
                 and self.stages.get("simulate") == "pass"
                 and self.stages.get("4state") != "fail"
                 and self.stages.get("configs") != "fail"
+                and self.stages.get("systemc") != "fail"
                 and self.stages.get("formal") != "fail")
 
     #: What a PROVEN verdict does and does not license you to say. Carried on
@@ -134,7 +137,7 @@ class Proof:
         if self.equivalent:
             return "PROVEN"
         if any(self.stages.get(k) == "fail"
-               for k in ("simulate", "4state", "configs", "formal")):
+               for k in ("simulate", "systemc", "4state", "configs", "formal")):
             return "REJECTED"
         return "INCONCLUSIVE"
 
@@ -348,14 +351,68 @@ def _run_configs(candidate: Path, timeout: int, bp_profile: str) -> Tuple[str, s
     return ("pass" if all(ok for _, ok, _ in outcomes) else "fail", detail)
 
 
+def _run_systemc(timeout: int) -> Tuple[str, str]:
+    """Refresh the SystemC rung so the scoreboard is genuinely three-way.
+
+    The comparison is skipped — not failed — when `build/sc_out.txt` is absent,
+    so a missing SystemC model leaves the suite green while proving one third
+    less. This builds the model, regenerates the stimulus, and runs it, which
+    makes the `simulate` stage that follows an actual 3-way check rather than a
+    2-way one with an optimistic name.
+
+    It validates the SystemC model against the golden, independent of whichever
+    RTL candidate is being proved: a channel crossed in gamma_sc.cpp alone is
+    caught here, with the RTL untouched.
+    """
+    if shutil.which("g++") is None:
+        return ("skip", "no C++ compiler")
+    try:
+        build = subprocess.run([str(_SCRIPTS / "build_systemc.sh")], cwd=str(_ROOT),
+                               env=sim_env(), capture_output=True, text=True,
+                               timeout=timeout)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return ("skip", f"build failed to start: {exc}")
+    if build.returncode == 2:
+        return ("skip", "SystemC not installed (scripts/build_systemc.sh)")
+    if build.returncode != 0:
+        return ("fail", f"build failed: {(build.stderr or build.stdout)[-160:]}")
+
+    try:
+        gen = subprocess.run([sys.executable, str(_SCRIPTS / "gen_sc_inputs.py")],
+                             cwd=str(_ROOT), env=sim_env(), capture_output=True,
+                             text=True, timeout=timeout)
+        if gen.returncode != 0:
+            return ("fail", f"stimulus generation failed: {(gen.stderr or '')[-160:]}")
+        run = subprocess.run(["./gamma_sc_sim"], cwd=str(_BUILD), env=sim_env(),
+                             capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return ("fail", f"SystemC sim timed out after {timeout}s")
+    except OSError as exc:
+        return ("fail", str(exc))
+    if run.returncode != 0:
+        return ("fail", f"SystemC sim exited {run.returncode}")
+    out = _BUILD / "sc_out.txt"
+    if not out.exists():
+        return ("fail", "SystemC sim produced no sc_out.txt")
+    lines = out.read_text().count("\n")
+    return ("pass", f"sc_out.txt refreshed ({lines} pixels) — simulate is 3-way")
+
+
 def prove(candidate_verilog: Optional[str] = None, *, name: str = "",
           timeout: int = 600, bp_profile: str = "single",
           run_regression: bool = True, run_formal: bool = True,
-          run_4state: bool = True, run_configs: bool = True) -> Proof:
+          run_4state: bool = True, run_configs: bool = True,
+          run_systemc: bool = True) -> Proof:
     """Gate a candidate: static checks, then the real scoreboard against it.
 
     `candidate_verilog=None` proves the project RTL itself — the baseline, and a
     sanity check that the gate agrees with the committed state.
+
+    NOT safe to run concurrently. The stages share `build/sc_out.txt`, the
+    SystemC binary and `tb/`, so two proofs racing produce failures that belong
+    to neither candidate — observed as a spurious REJECTED while a mutation
+    campaign was running. `api/mutate.py` runs them in sequence for this reason;
+    any other caller must too.
     """
     code = candidate_verilog if candidate_verilog is not None else _RTL.read_text()
     _WORK.mkdir(parents=True, exist_ok=True)
@@ -392,10 +449,22 @@ def prove(candidate_verilog: Optional[str] = None, *, name: str = "",
                                        f"flops={report.metrics.get('synth_flops')} "
                                        f"latches={report.metrics.get('synth_latches')}")
 
-    # 4. the oracle. Skipped only when the earlier stages make it meaningless —
-    # a candidate that does not lint cannot be simulated, and reporting that as
-    # "not equivalent" would hide the real cause.
+    # `blocked` gates everything that follows: a candidate that does not lint
+    # cannot be simulated, and reporting that as "not equivalent" would hide the
+    # real cause.
     blocked = proof.stages.get("lint") == "fail" or proof.stages.get("design") == "fail"
+
+    # 4. SystemC. Runs BEFORE simulate so the scoreboard that follows compares
+    #    all three models rather than quietly skipping one.
+    if run_systemc and not blocked:
+        st, detail = _run_systemc(timeout=timeout)
+        proof.stages["systemc"] = st
+        proof.details["systemc"] = detail
+    elif run_systemc:
+        proof.stages["systemc"] = "skip"
+        proof.details["systemc"] = "not run — an earlier gating stage failed"
+
+    # 5. the oracle.
     if not run_regression:
         proof.stages["simulate"] = "skip"
         proof.details["simulate"] = "regression not requested"
@@ -423,7 +492,7 @@ def prove(candidate_verilog: Optional[str] = None, *, name: str = "",
             proof.stages["simulate"] = "fail"
             proof.details["simulate"] = "could not parse cocotb results"
 
-    # 5. non-default configurations. A generate branch nobody elaborates is a
+    # 6. non-default configurations. A generate branch nobody elaborates is a
     #    branch nobody tests.
     if run_configs and not blocked and proof.stages.get("simulate") == "pass":
         st, detail = _run_configs(path, timeout=timeout, bp_profile=bp_profile)
@@ -433,7 +502,7 @@ def prove(candidate_verilog: Optional[str] = None, *, name: str = "",
         proof.stages["configs"] = "skip"
         proof.details["configs"] = "not run — the default configuration must pass first"
 
-    # 6. 4-state. The same tests, under a simulator that can represent X.
+    # 7. 4-state. The same tests, under a simulator that can represent X.
     if run_4state and not blocked and proof.stages.get("simulate") == "pass":
         st, detail = _run_4state(path, timeout=timeout)
         proof.stages["4state"] = st
@@ -444,7 +513,7 @@ def prove(candidate_verilog: Optional[str] = None, *, name: str = "",
                                    if not blocked else
                                    "not run — an earlier gating stage failed")
 
-    # 7. formal. Independent of the scoreboard on purpose: it is here precisely
+    # 8. formal. Independent of the scoreboard on purpose: it is here precisely
     #    to cover what simulation provably cannot see.
     if run_formal and not blocked:
         st, detail = _run_formal(path, timeout=timeout)
@@ -455,7 +524,36 @@ def prove(candidate_verilog: Optional[str] = None, *, name: str = "",
         proof.details["formal"] = "not run — an earlier gating stage failed"
 
     proof.elapsed_s = time.time() - t0
+    _cleanup_build_dirs(path, keep=not proof.equivalent)
     return proof
+
+
+def _cleanup_build_dirs(candidate: Path, *, keep: bool) -> None:
+    """Remove the scratch SIM_BUILD dirs this proof created.
+
+    One per candidate is correct while running — sharing them is what made a
+    stage report a pass for a build it never made — but keeping every one is
+    not: a mutation campaign leaves dozens of multi-megabyte directories in
+    `tb/`, next to the one the developer actually uses.
+
+    `keep` preserves them for a candidate that FAILED, where the build is the
+    evidence someone will want to look at.
+    """
+    if keep:
+        return
+    tag = f"gate_{candidate.stem[:24]}"
+    for d in (_TB / f"sim_build_{tag}", _TB / "sim_build_icarus"):
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def sweep_build_dirs() -> int:
+    """Delete every leftover gate build dir. Returns how many were removed."""
+    n = 0
+    for d in _TB.glob("sim_build_gate_*"):
+        if d.is_dir():
+            shutil.rmtree(d, ignore_errors=True)
+            n += 1
+    return n
 
 
 def apply_candidate(candidate_path: str, *, backup: bool = True) -> dict:
@@ -512,17 +610,24 @@ _GAP_CHECKS = (
      "POST /improve/mutate, or python -c 'from api import mutate; "
      "print(mutate.run(limit=20))'"),
     ("systemc rung", "medium",
-     "build/sc_out.txt absent, so the SystemC representation is unproven; only "
-     "two of the three models are actually compared.",
-     "build the SystemC sim, then ./scripts/run_3way.sh"),
+     "build/sc_out.txt absent, so the SystemC representation is unproven and a "
+     "scoreboard that calls itself 3-way is comparing two models. The gate "
+     "rebuilds and reruns it when SystemC is installed; without it that "
+     "comparison is skipped, which is missing evidence, not a pass.",
+     "scripts/build_systemc.sh  (brew install systemc / apt install libsystemc-dev)"),
     ("code coverage", "low",
-     "No line/branch coverage, so it is unknown which RTL the 13 patterns "
-     "actually reach.",
-     "verilator --coverage ... && verilator_coverage --write-info"),
+     "Measured by `api/coverage.py` (GET /coverage). It found one line the "
+     "tests never reached — the reserved `lut_ch = 2'b11` decode, a documented "
+     "contract nobody checked — which is now covered by "
+     "test_lut_reserved_encoding. Re-measure after adding RTL; "
+     "`never-executed` is the number that matters.",
+     "GET /coverage"),
     ("style lint", "low",
-     "verilator --lint-only checks semantics, not house style; no formatter is "
-     "enforced.",
-     "verible-verilog-lint / verible-verilog-format"),
+     "verilator --lint-only checks semantics, not house style, and no formatter "
+     "is enforced. Verible is the tool for it but is not packaged for this "
+     "platform (no brew formula), so closing this means installing a release "
+     "binary by hand — a deliberate choice, not an oversight.",
+     "install Verible from its GitHub releases, then verible-verilog-lint"),
 )
 
 
@@ -538,14 +643,18 @@ def audit() -> dict:
     have_sby = shutil.which("sby") is not None
     have_formal = (_FORMAL / "gamma.sby").exists()
     have_verible = shutil.which("verible-verilog-lint") is not None
-    have_mcy = shutil.which("mcy") is not None
+    have_coverage = shutil.which("verilator_coverage") is not None
+    # Mutation coverage is `api/mutate.py`, not MCY — it is always present.
+    # Checking for the `mcy` binary reported "tool not installed" for a harness
+    # that ships with the repo.
 
     satisfied = {"systemc rung": have_sc, "4-state simulation": have_icarus}
     tooling = {
         "4-state simulation": have_icarus,
         "formal datapath proof": have_sby and have_formal,
-        "mutation coverage": have_mcy,
+        "mutation coverage": True,
         "style lint": have_verible,
+        "code coverage": have_coverage,
     }
 
     gaps = []

@@ -28,3 +28,8 @@ formal/gamma/
 
 # cocotb build dirs created by the sign-off gate (never the developer's)
 tb/sim_build_*/
+
+# Verilator coverage artefacts
+tb/coverage.dat
+tb/sim_build_cov/
+tb/logs/
