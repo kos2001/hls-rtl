@@ -6,7 +6,7 @@ import { Navigator } from './Navigator'
 import type { NavSelection } from './Navigator'
 import { Properties } from './Properties'
 import { SchematicPane } from './Schematic'
-import { Splitter, applySavedPanes } from './Splitter'
+import { Splitter, applySavedPanes, resetPanes } from './Splitter'
 import { WaveformPane } from './Waveform'
 import { ChatPanel, PlanTab } from './PlanAsk'
 import { log, traced } from './log'
@@ -541,6 +541,11 @@ export default function App() {
           <MenuItem onClick={() => setShowNav((v) => !v)}>{showNav ? '✓ ' : ''}Design navigator</MenuItem>
           <MenuItem onClick={() => setShowProps((v) => !v)}>{showProps ? '✓ ' : ''}Properties</MenuItem>
           <MenuItem onClick={() => setConsoleOpen((v) => !v)}>{consoleOpen ? '✓ ' : ''}Transcript</MenuItem>
+          <MenuItem onClick={() => {
+            resetPanes(shellRef.current)
+            setShowNav(true); setShowProps(true); setConsoleOpen(true)
+            log.info('LAYOUT', 'pane sizes reset to the fluid defaults')
+          }}>Reset layout</MenuItem>
           <MenuItem onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
             {theme === 'dark' ? 'Light' : 'Dark'} theme
           </MenuItem>

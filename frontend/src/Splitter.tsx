@@ -43,6 +43,26 @@ export function applySavedPanes(el: HTMLElement | null) {
   for (const [k, v] of Object.entries(readAll())) el.style.setProperty(k, `${v}px`)
 }
 
+/**
+ * Drop every override and go back to the fluid clamp() defaults.
+ *
+ * Worth a menu item because a bad size is sticky: it is stored in px, survives
+ * reloads, and a pane dragged nearly shut on one screen looks like a rendering
+ * bug on the next one rather than something the user did.
+ */
+export function resetPanes(el: HTMLElement | null) {
+  for (const k of Object.keys(readAll())) el?.style.removeProperty(k)
+  try { localStorage.removeItem(KEY) } catch { /* private mode */ }
+}
+
+/** Upper bound for a pane, as a share of the window rather than a constant.
+ *  CSS caps this too (`min(var(--nav-w), 34%)`); enforcing it during the drag
+ *  as well keeps the stored number honest instead of saving a size that the
+ *  layout then silently refuses to use. */
+function viewportMax(axis: Axis, hard: number): number {
+  return Math.min(hard, axis === 'x' ? window.innerWidth * 0.34 : window.innerHeight * 0.6)
+}
+
 export function Splitter({ axis, varName, invert, min, max, label }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const [dragging, setDragging] = useState(false)
@@ -51,10 +71,10 @@ export function Splitter({ axis, varName, invert, min, max, label }: Props) {
     () => ref.current?.closest('.workbench') as HTMLElement | null, [])
 
   const apply = useCallback((px: number) => {
-    const clamped = Math.min(max, Math.max(min, px))
+    const clamped = Math.min(viewportMax(axis, max), Math.max(min, px))
     shell()?.style.setProperty(varName, `${clamped}px`)
     writeOne(varName, clamped)
-  }, [max, min, shell, varName])
+  }, [axis, max, min, shell, varName])
 
   useEffect(() => {
     if (!dragging) return
