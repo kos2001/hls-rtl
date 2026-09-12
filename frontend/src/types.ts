@@ -122,3 +122,102 @@ export interface GraphResult {
   result?: string
   error?: string
 }
+
+// ---------- Hermes skills (what the gateway profile can actually load) ----------
+export interface SkillInfo {
+  name: string
+  category: string
+  description: string
+  installed: boolean
+  source: 'profile' | 'repo-only' | 'missing'
+  purpose: string
+}
+
+export interface SkillReport {
+  profile: string | null
+  profile_dir: string | null
+  gateway_base_url: string
+  use_skills: boolean
+  active: string[]
+  missing: string[]
+  skills: SkillInfo[]
+}
+
+// ---------- Waveform ----------
+export interface WaveSignal {
+  name: string
+  width: number
+  kind: string
+  scope: string
+  /** [time, value] — value is '0'|'1'|'x'|'z' for width 1, else a bit string. */
+  transitions: [number, string][]
+}
+
+export interface WaveParam {
+  name: string
+  width: number
+  value: string
+}
+
+export interface Waveform {
+  available: boolean
+  /** Elaboration constants, listed rather than plotted. */
+  parameters?: WaveParam[]
+  error?: string
+  scope?: string
+  scopes?: { name: string; signals: number }[]
+  timescale_seconds?: number
+  time_unit?: string
+  start?: number
+  end?: number
+  truncated?: boolean
+  transition_count?: number
+  signals?: WaveSignal[]
+}
+
+export interface WaveStatus {
+  available: boolean
+  path: string
+  size_bytes?: number
+  modified?: number
+  ran?: boolean
+  ok?: boolean
+  error?: string
+  log_tail?: string
+}
+
+// ---------- Schematic ----------
+export interface SchematicNode {
+  id: string
+  label: string
+  kind: 'port' | 'cell'
+  cls: string
+  layer: number
+  width: number
+  type?: string
+  name?: string
+  src_line?: number | null
+  direction?: 'input' | 'output'
+  seq?: boolean
+}
+
+export interface SchematicEdge {
+  from: string
+  to: string
+  net: string
+  width: number
+}
+
+export interface Schematic {
+  available: boolean
+  error?: string
+  top?: string
+  node_count?: number
+  edge_count?: number
+  layers?: number
+  truncated?: boolean
+  stats?: Record<string, number>
+  nodes?: SchematicNode[]
+  edges?: SchematicEdge[]
+  note?: string
+}

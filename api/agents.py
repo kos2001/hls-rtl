@@ -12,24 +12,22 @@ actually gates on; this LLM layer adds natural-language plans / explanations.
 """
 from __future__ import annotations
 
+from . import skills
 from .config import load_settings
 from .hermes_engine import HermesGateway
 
-# The EDA skills installed on the Hermes Gateway (confirmed live via the
-# engine's `skills` tool). Agents are told to apply them.
-EDA_SKILLS = ("systemverilog", "fpga", "ppa-closure-agent")
-EDA_SKILLS_DIRECTIVE = (
-    "\n\nBefore answering, use your `skills` tool to load and apply this gateway's "
-    "EDA/hardware-design skills: `systemverilog` (RTL coding standards, "
-    "synthesizable constructs), `fpga` (synthesis / timing / resource closure), "
-    "and `ppa-closure-agent` (power / performance / area trade-offs). Ground your "
-    "answer in their guidance."
-)
-
-
 def apply_eda_skills(instructions: str) -> str:
-    """Append the EDA-skills directive when HERMES_USE_SKILLS is on."""
-    return instructions + EDA_SKILLS_DIRECTIVE if load_settings().use_skills else instructions
+    """Append the skills directive for the skills that are ACTUALLY installed.
+
+    This used to name a hard-coded tuple ("systemverilog", "fpga",
+    "ppa-closure-agent"). That silently misfires: the gateway serves one profile,
+    and naming a skill the profile does not have tells the agent to load something
+    that does not exist. `api/skills.py` resolves the serving profile and builds
+    the directive from what is really there — see `GET /skills` for the live state
+    and `scripts/sync_hermes_skills.py` to install what is missing.
+    """
+    return instructions + skills.directive()
+
 
 PLANNER_INSTRUCTIONS = (
     "You are the reasoning/planning module of an AI-driven RTL flow. Input is a "

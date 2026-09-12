@@ -6,9 +6,13 @@ import type {
   Progressive,
   QoRReport,
   Reflection,
+  Schematic,
   SignoffReport,
+  SkillReport,
   Telemetry,
   VerificationResults,
+  WaveStatus,
+  Waveform,
 } from './types'
 
 const BASE = '/api'
@@ -96,4 +100,28 @@ export const api = {
 
   graphExplain: (node: string) =>
     request<GraphResult>(`/graph/explain?node=${encodeURIComponent(node)}`),
+
+  // Which skills the gateway's serving profile really has. `refresh` re-scans
+  // after a sync instead of serving the cached report.
+  skills: (refresh = false) =>
+    request<SkillReport>(`/skills${refresh ? '?refresh=true' : ''}`),
+
+  waveStatus: () => request<WaveStatus>('/waveform/status'),
+
+  // Runs the traced (WAVES=1) regression when no dump exists; ~30% slower sim.
+  waveRun: (regenerate: boolean) =>
+    request<WaveStatus>('/waveform/run', {
+      method: 'POST',
+      body: JSON.stringify({ regenerate }),
+    }),
+
+  waveform: (opts: { start?: number; end?: number; maxTransitions?: number } = {}) => {
+    const q = new URLSearchParams()
+    if (opts.start != null) q.set('start', String(opts.start))
+    if (opts.end != null) q.set('end', String(opts.end))
+    q.set('max_transitions', String(opts.maxTransitions ?? 20000))
+    return request<Waveform>(`/waveform?${q}`)
+  },
+
+  schematic: () => request<Schematic>('/schematic'),
 }

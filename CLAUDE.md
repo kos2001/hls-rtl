@@ -87,12 +87,24 @@ built container):
 - `GET /analyze`, `/drc`, `/lint` — RTL QoR (verilator lint + yosys synth + structural checks → 0-100 score), design-rule report. Implemented in `api/rtl_qor.py`, **calibrated for Verilog-2001** (does not penalize `reg`/`wire` or `always @`).
 - `POST /signoff` — lint → design → synthesize → **the real 3-way cocotb regression** (`make -C tb`) → consolidated verdict (`api/signoff.py`).
 - `GET /telemetry/{kind}` — run trends archived to `runs/` (`api/telemetry.py`).
+- `GET /skills` — which agent skills the gateway's **serving profile** actually has, vs. what this project wants (`api/skills.py`). The gateway serves one profile; naming a skill it lacks is a silent no-op, so the directive is built from live discovery, never a hard-coded list. Source of truth is `skills/`; install with `scripts/sync_hermes_skills.py`.
+- `GET /waveform`, `GET /waveform/status`, `POST /waveform/run` — VCD extraction for the waveform viewer (`api/waveform.py`). `tb/dump.vcd` comes from the traced regression (`make -C tb WAVES=1`, ~30% slower); elaboration parameters are listed separately rather than plotted.
+- `GET /schematic` — layered RTL netlist graph from `yosys proc + opt_clean` (`api/schematic.py`). No graphviz dependency: the browser draws it. Cells carry their source line for schematic→RTL cross-probing.
 - `POST /chat` — RTL-assistant routed through the **Hermes Gateway** (`api/hermes_engine.py`, an OpenAI-compatible `/v1/chat/completions` agent server). Returns **503** until `HERMES_GATEWAY_API_KEY` is set in `.env`; the gateway runs separately (default `:8643`). Config in `api/config.py`.
 
 `frontend/` is React 19 + Vite 7 + TypeScript; data adapter in `src/api.ts`
 falls back to bundled `public/results.json` when the backend is unreachable.
 Regenerate that snapshot with
 `PYTHONPATH=tb:golden python scripts/gen_dashboard_data.py`.
+
+The UI is laid out like a commercial EDA tool (Cadence/Synopsys): menu bar, run
+toolbar, **design navigator** (left), tabbed work area, **properties inspector**
+(right), **tool transcript** (bottom), status bar. Two themes via `data-theme`.
+Every flow routes through `src/log.ts::traced()`, so the transcript is a complete
+severity-tagged record of the session — the format is specified by the
+`eda-transcript-conventions` skill, which means agent output and tool output read
+alike. Views: Scoreboard, Waveform (`src/Waveform.tsx`, canvas), Schematic
+(`src/Schematic.tsx`, SVG), Quality, Sign-off, Flows, Assistant.
 
 ## Conventions
 
