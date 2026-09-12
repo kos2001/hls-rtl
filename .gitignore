@@ -13,3 +13,23 @@ frontend/dist/
 .DS_Store
 .pytest_cache/
 .playwright-mcp/
+
+# cocotb/Verilator waveform dump (WAVES=1); regenerate with make -C tb WAVES=1
+tb/dump.vcd
+
+# self-improvement loop candidates (regenerated; never source of truth)
+build/improve/
+rtl/gamma.v.bak-*
+
+# SymbiYosys task working directories (one per [tasks] entry; glob so a new
+# task does not have to be added here too)
+formal/gamma_*/
+formal/gamma/
+
+# cocotb build dirs created by the sign-off gate (never the developer's)
+tb/sim_build_*/
+
+# Verilator coverage artefacts
+tb/coverage.dat
+tb/sim_build_cov/
+tb/logs/

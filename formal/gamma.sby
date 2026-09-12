@@ -1,0 +1,85 @@
+# SymbiYosys tasks for the gamma control path.
+#
+#   prove  — k-induction. UNBOUNDED, and what the gate runs.
+#   cover  — reachability, so a passing proof cannot be vacuous.
+#   bmc    — bounded check; useful when a property fails and a concrete
+#            counterexample trace is wanted.
+#   deep   — bmc, further out.
+#
+# `prove` closes in ~2s. It used to fail its induction step, and the two
+# strengthening invariants (A9, A10 in gamma_props.sv) are what fixed it. They
+# also made `bmc` roughly ten times faster, because the same facts prune the
+# search.
+#
+# On reaching into the DUT: the Verilog frontend cannot. Writing `dut.count` in
+# the property file makes yosys implicitly declare an undriven wire — a free
+# variable that reports spurious counterexamples and proves nothing where it
+# matters. After `flatten`, though, the signal exists in RTLIL as `dut.count`,
+# and `connect -set` binds it to the placeholder declared in gamma_props.sv.
+# A wrong name is then a hard ERROR rather than a silent free variable, which is
+# the only reason this is safe to rely on.
+#
+# Those bindings are used only by the induction strengtheners (A9, A10). Every
+# behavioural property still speaks only about the ports.
+#
+# z3 is used because it is what this machine has; any SMT solver yosys supports
+# will do.
+
+[tasks]
+prove
+cover
+bmc
+deep
+prove_sync
+cover_sync
+
+[options]
+# *_sync repeat the proof with LUT_SYNC_READ=1. That generate branch is not
+# elaborated by default, so without these tasks the registered-read datapath has
+# no formal coverage at all — mutation testing found an occupancy off-by-one
+# surviving in exactly that gap.
+prove_sync: mode prove
+prove_sync: depth 16
+cover_sync: mode cover
+cover_sync: depth 20
+
+bmc:   mode bmc
+bmc:   depth 16
+cover: mode cover
+cover: depth 20
+deep:  mode bmc
+deep:  depth 24
+prove: mode prove
+prove: depth 16
+
+[engines]
+smtbmc z3
+
+[script]
+# sby flattens [files] into the task's src/ dir, so reference basenames here.
+read -formal -sv gamma_props.sv
+read -formal gamma.v
+prove_sync: chparam -set LUT_SYNC_READ 1 gamma_props
+cover_sync: chparam -set LUT_SYNC_READ 1 gamma_props
+hierarchy -top gamma_props
+proc
+flatten
+# Bind the placeholder in gamma_props.sv to the DUT's real counter. Must come
+# after `flatten` (the name does not exist before) and before `opt_clean` (which
+# would remove an undriven wire).
+connect -set \dut_count  \dut.count
+connect -set \dut_rd_ptr \dut.rd_ptr
+connect -set \dut_wr_ptr \dut.wr_ptr
+# Nothing is in flight in the default mode; in registered-read mode the stage-1
+# entry is.
+prove:      connect -set \dut_pending 1'b0
+cover:      connect -set \dut_pending 1'b0
+bmc:        connect -set \dut_pending 1'b0
+deep:       connect -set \dut_pending 1'b0
+prove_sync: connect -set \dut_pending \dut.g_lut_sync.s1_valid
+cover_sync: connect -set \dut_pending \dut.g_lut_sync.s1_valid
+opt_clean
+
+[files]
+gamma_props.sv
+../rtl/gamma.v

@@ -7,7 +7,10 @@ is read from the environment only — it is never hard-coded here.
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict
 
 try:
     from dotenv import load_dotenv
@@ -56,3 +59,26 @@ def load_settings() -> Settings:
         # fall back to skill-free prompts.
         use_skills=_env_flag("HERMES_USE_SKILLS", True),
     )
+
+
+def sim_env(**extra: str) -> Dict[str, str]:
+    """Environment for a cocotb `make`.
+
+    cocotb embeds a Python interpreter through GPI and locates the venv from
+    **VIRTUAL_ENV**, not from PATH — activation is what normally sets it. Running
+    the api-server as `uvicorn api.server:app` from the venv without activating
+    leaves it unset, so the embedded interpreter falls back to the system Python,
+    fails to import `pygpi`, and never writes results.xml. The failure surfaces
+    as "the regression failed" when in fact it never ran.
+
+    PYTHONHOME is dropped for the same family of reason: a stale value points the
+    embedded interpreter at the wrong stdlib. It is the known CI failure here.
+    """
+    env = {**os.environ, **extra}
+    bindir = Path(sys.executable).parent
+    env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+    env.pop("PYTHONHOME", None)
+    # sys.prefix differs from base_prefix exactly when we are inside a venv.
+    if sys.prefix != sys.base_prefix:
+        env["VIRTUAL_ENV"] = sys.prefix
+    return env

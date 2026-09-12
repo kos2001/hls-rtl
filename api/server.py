@@ -36,6 +36,9 @@ from gen_dashboard_data import build_results  # noqa: E402
 # Imported after the path setup above (oracle pulls in the golden model).
 from . import oracle as oracle_mod  # noqa: E402
 from . import rtl_segments, reflection, equiv as equiv_mod, agents  # noqa: E402
+from . import skills as skills_mod, waveform as waveform_mod, schematic as schematic_mod  # noqa: E402
+from . import knowledge as kb, improve as improve_mod, mutate as mutate_mod  # noqa: E402
+from . import coverage as coverage_mod  # noqa: E402
 from . import graph_rag  # noqa: E402
 
 app = FastAPI(title="Gamma Verification API", version="0.1.0")
@@ -84,6 +87,10 @@ class ChatIn(BaseModel):
 class ChatOut(BaseModel):
     content: str
     user_id: str
+    # Which knowledge-base passages were injected as grounding for this answer.
+    # Surfaced so a reader can check the answer against its sources instead of
+    # taking the agent's word for it.
+    citations: List[Dict[str, Any]] = []
 
 
 _RTL_ASSISTANT_INSTRUCTIONS = (
@@ -92,45 +99,27 @@ _RTL_ASSISTANT_INSTRUCTIONS = (
     "(Python golden / SystemC / Verilog RTL) bit-exact scoreboard. Answer "
     "concisely and technically about the design, its handshake/latency contract, "
     "the test set, and verification results. Answer in the same language the "
-    "user writes in (Korean question -> Korean answer)."
+    "user writes in (Korean question -> Korean answer). "
+    "Ground every factual claim about this design in the DESIGN KNOWLEDGE BASE "
+    "passages below and cite the [path:lines] label you relied on. If the "
+    "knowledge base does not cover something, say so plainly instead of "
+    "inferring it — a missing passage is not permission to guess."
 )
 
 
-def _design_digest(max_chars: int = 1800) -> str:
-    """Live digest of the CURRENT design state, injected per request so agent
-    answers are grounded in today's RTL rather than stale session memory
-    (the gateway's X-Hermes-Session-Id opt-in loads prior transcripts)."""
-    parts = ["\n\n=== CURRENT DESIGN STATE (authoritative, read just now) ===",
-             "If session memory conflicts with the below, the below wins."]
-    # Highest-value facts first — the digest is length-capped.
-    try:
-        rtl = (_ROOT / "rtl" / "gamma.v").read_text()
-        params = [l.strip() for l in rtl.splitlines() if "parameter integer" in l]
-        assigns = [l.strip() for l in rtl.splitlines()
-                   if l.strip().startswith("assign in_ready")
-                   or l.strip().startswith("assign out_valid")]
-        parts.append("parameters: " + " | ".join(params))
-        parts.append("handshake: " + " | ".join(assigns))
-    except OSError:
-        parts.append("(rtl/gamma.v unreadable)")
-        rtl = ""
-    try:
-        res = json.loads((_ROOT / "frontend" / "public" / "results.json").read_text())
-        s = res["summary"]
-        parts.append(f"verification: {s['passed']}/{s['total_patterns']} patterns pass, "
-                     f"{s['total_pixels']} pixels bit-exact")
-    except Exception:
-        pass
-    if rtl:
-        header = []
-        for line in rtl.splitlines():
-            if line.startswith("//"):
-                header.append(line)
-            elif header:
-                break
-        parts.append("rtl/gamma.v contract header:\n" + "\n".join(header[:16]))
-    digest = "\n".join(parts)
-    return digest[:max_chars]
+def _design_digest(query: str = "", max_chars: int = 9000):
+    """Grounding context for one request, retrieved for THIS question.
+
+    This used to be a fixed 1800-char digest — the same parameters and pass
+    count for every question. That grounds "what is in_ready" and nothing else;
+    anything about backpressure, the SystemC mirror, or why a pattern exists fell
+    back on session memory. `api/knowledge.py` now retrieves the passages that
+    match the question, on top of pinned chunks (module contract, current
+    pass/fail) that are context for everything.
+
+    Returns (context_block, citations).
+    """
+    return kb.context_for(query, budget=max_chars)
 
 
 # ---- Routes ----
@@ -276,7 +265,15 @@ async def plan_route(req: PlanIn) -> Dict[str, Any]:
         raise HTTPException(503, "Hermes Gateway credentials missing (set HERMES_GATEWAY_API_KEY)")
     prompt = f"uArch document (existing + changed):\n{req.uarch}\n\nAlgorithm (Python):\n{req.algorithm}"
     planner = agents.build_planner()
-    planner.instructions += _design_digest()
+    # Retrieve against the CHANGED delta, not the whole uArch. The full spec is
+    # already in the prompt as the planner's input; querying with it just
+    # retrieves the spec's own sections back — spending the grounding budget on
+    # text the model can already see. The delta is what needs surrounding
+    # context (which RTL block, which test, which sibling model).
+    _, _, delta = req.uarch.partition("## 9. CHANGED")
+    query = (delta or req.uarch)[:1200] + "\n" + req.algorithm[:400]
+    ctx, citations = _design_digest(query)
+    planner.instructions += ctx
     try:
         # Fresh session per plan request: plans are self-contained and must not
         # inherit stale design facts from earlier transcripts.
@@ -284,7 +281,7 @@ async def plan_route(req: PlanIn) -> Dict[str, Any]:
                                        session_id=uuid.uuid4().hex)
     except RuntimeError as exc:
         raise HTTPException(502, str(exc))
-    return {"plan": resp.content}
+    return {"plan": resp.content, "citations": citations}
 
 
 # ---- #5 adaptive reflection (deterministic; LLM-free) ----
@@ -346,6 +343,231 @@ def graph_query(q: str, budget: int = 2000, dfs: bool = False) -> Dict[str, Any]
     return graph_rag.query(q, budget=budget, dfs=dfs)
 
 
+# ---- Self-improvement loop ----
+class ProveIn(BaseModel):
+    code: Optional[str] = None      # None -> prove the committed rtl/gamma.v
+    bp_profile: str = "split"
+    run_regression: bool = True
+
+
+@app.post("/improve/prove")
+def improve_prove(req: ProveIn) -> Dict[str, Any]:
+    """Gate a candidate against the oracle: lint, design rules, synthesis, then
+    the real cocotb regression run against THIS code. No LLM. `PROVEN` means
+    bit-exact values and ordering — see `proves` / `does_not_prove`."""
+    return improve_mod.prove(req.code, bp_profile=req.bp_profile,
+                             run_regression=req.run_regression).to_dict()
+
+
+@app.get("/improve/mutants")
+def improve_mutants(limit: int = 0) -> Dict[str, Any]:
+    """The mutant set without running anything — cheap, for seeing which fault
+    classes are covered before paying for a campaign."""
+    return mutate_mod.preview(limit=limit)
+
+
+class MutateIn(BaseModel):
+    limit: int = 12
+    bp_profile: str = "single"
+    operators: Optional[List[str]] = None
+
+
+@app.post("/improve/mutate")
+def improve_mutate(req: MutateIn) -> Dict[str, Any]:
+    """Inject single faults and run the real gate on each.
+
+    Measures detection power, which a pass rate does not. Roughly 10s per
+    mutant, so `limit` is there to keep an interactive run interactive."""
+    return mutate_mod.run(limit=req.limit, operators=req.operators,
+                          bp_profile=req.bp_profile)
+
+
+@app.get("/coverage")
+def coverage_route(bp_profile: str = "single") -> Dict[str, Any]:
+    """Line coverage from an instrumented Verilator run.
+
+    `never-executed` is the signal worth acting on. `partial` frequently
+    reflects how Verilator attributes branch points to declaration lines, and
+    the elaboration guards in the `translate_off` block are exempt — they fire
+    only on an illegal parameterisation, so requiring them would mean the only
+    route to 100% is to break the design."""
+    return coverage_mod.run(bp_profile=bp_profile)
+
+
+@app.get("/improve/audit")
+def improve_audit() -> Dict[str, Any]:
+    """Ranked gaps in EVIDENCE, not known defects. Deterministic, no gateway."""
+    return improve_mod.audit()
+
+
+class LoopIn(BaseModel):
+    goal: str
+    max_iters: int = 3
+    bp_profile: str = "single"
+    user_id: str = "default-user"
+
+
+@app.post("/improve/loop")
+async def improve_loop(req: LoopIn) -> Dict[str, Any]:
+    """Propose → prove → reflect, bounded, with the oracle as the only judge.
+    Returns every attempt including failures. Nothing is written to rtl/."""
+    return await improve_mod.run_loop(req.goal, max_iters=req.max_iters,
+                                      bp_profile=req.bp_profile,
+                                      user_id=req.user_id)
+
+
+class ApplyIn(BaseModel):
+    candidate_path: str
+
+
+@app.post("/improve/apply")
+def improve_apply(req: ApplyIn) -> Dict[str, Any]:
+    """Promote a proven candidate to rtl/gamma.v. Re-proves it first and refuses
+    if it is not equivalent; backs up the current RTL."""
+    try:
+        return improve_mod.apply_candidate(req.candidate_path)
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(400, str(exc))
+
+
+# ---- Project documents ----
+# Whitelisted so the endpoint cannot be turned into an arbitrary file read.
+_DOCS = {
+    "MANUAL": _ROOT / "docs" / "MANUAL.md",
+    "UARCH": _ROOT / "docs" / "UARCH.md",
+    "TESTPLAN": _ROOT / "TESTPLAN.md",
+    "README": _ROOT / "README.md",
+}
+
+
+@app.get("/doc/{name}")
+def doc(name: str, lang: str = "en") -> Dict[str, Any]:
+    """A project document by name, for rendering inside the workbench.
+
+    `lang=ko` prefers a `.ko.md` sibling and falls back to the English original
+    when none exists — a missing translation should degrade to a readable
+    document, never to a 404.
+    """
+    path = _DOCS.get(name.upper())
+    if path is None:
+        raise HTTPException(404, f"unknown document {name!r}; have {sorted(_DOCS)}")
+    translated = False
+    if lang and lang != "en":
+        alt = path.with_suffix("").with_suffix(f".{lang}.md") if path.name.endswith(".md") \
+            else path
+        alt = path.parent / f"{path.name[:-3]}.{lang}.md"
+        if alt.exists():
+            path, translated = alt, True
+    if not path.exists():
+        raise HTTPException(404, f"{path.relative_to(_ROOT)} not found")
+    text = path.read_text(encoding="utf-8")
+    return {"name": name.upper(), "path": str(path.relative_to(_ROOT)),
+            "lang": lang if translated else "en", "translated": translated,
+            "chars": len(text), "text": text}
+
+
+# ---- Microarchitecture spec ----
+@app.get("/uarch")
+def uarch() -> Dict[str, Any]:
+    """The uArch specification (docs/UARCH.md) — the design input `POST /plan`
+    consumes. Served so the UI can seed the planner with the real document
+    instead of a placeholder the user has to retype."""
+    p = _ROOT / "docs" / "UARCH.md"
+    if not p.exists():
+        raise HTTPException(404, "docs/UARCH.md not found")
+    text = p.read_text(encoding="utf-8")
+    # The "## CHANGED" tail is where a proposal goes; split it out so the UI can
+    # show the stable spec read-only and let the user edit only the delta.
+    marker = "\n## 9. CHANGED"
+    head, _, tail = text.partition(marker)
+    return {
+        "path": "docs/UARCH.md",
+        "chars": len(text),
+        "spec": head.rstrip(),
+        "changed_section": (marker + tail).strip() if tail else "",
+    }
+
+
+# ---- Knowledge base (retrieval grounding) ----
+@app.get("/kb/stats")
+def kb_stats() -> Dict[str, Any]:
+    """Index size and composition. The index rebuilds automatically when a
+    source file's mtime changes, so this also shows how fresh it is."""
+    return kb.stats()
+
+
+@app.get("/kb/search")
+def kb_search(q: str, limit: int = 8, text: bool = False) -> Dict[str, Any]:
+    """What the agent would be given as grounding for `q` — the same retrieval
+    path /chat uses, exposed so the ranking can be inspected directly."""
+    hits = kb.search(q, limit=limit)
+    return {
+        "query": q,
+        "count": len(hits),
+        "results": [{**r.chunk.to_dict(include_text=text), "score": r.score}
+                    for r in hits],
+    }
+
+
+@app.get("/kb/context")
+def kb_context(q: str, budget: int = 9000) -> Dict[str, Any]:
+    """The exact grounding block injected for `q`, for debugging prompts."""
+    block, citations = kb.context_for(q, budget=budget)
+    return {"query": q, "chars": len(block), "citations": citations, "context": block}
+
+
+# ---- Hermes skills (what the agent can actually load) ----
+@app.get("/skills")
+def skills_route(refresh: bool = False) -> Dict[str, Any]:
+    """Which skills the gateway's serving profile really has, vs. what this
+    project wants. `source: "repo-only"` means the skill is authored in skills/
+    but not yet synced — run scripts/sync_hermes_skills.py."""
+    return skills_mod.report(refresh=refresh).to_dict()
+
+
+# ---- Waveform (Verdi/SimVision-style viewer data) ----
+@app.get("/waveform/status")
+def waveform_status() -> Dict[str, Any]:
+    return waveform_mod.dump_status()
+
+
+class WaveRunIn(BaseModel):
+    regenerate: bool = False
+    bp_profile: str = "single"
+
+
+@app.post("/waveform/run")
+def waveform_run(req: WaveRunIn) -> Dict[str, Any]:
+    """Ensure a VCD exists, running the traced (WAVES=1) regression if needed.
+    Tracing costs ~30% sim time, so an existing dump is reused unless
+    `regenerate` is set."""
+    return waveform_mod.ensure_dump(regenerate=req.regenerate,
+                                    bp_profile=req.bp_profile)
+
+
+@app.get("/waveform")
+def waveform_route(scope: Optional[str] = None, start: int = 0,
+                   end: Optional[int] = None,
+                   max_transitions: int = 20000) -> Dict[str, Any]:
+    """A drawable window of the dump: signals plus their value changes.
+    Times are in the dump's own units (ps for the Verilator trace)."""
+    return waveform_mod.extract(scope=scope, start=start, end=end,
+                                max_transitions=max_transitions)
+
+
+# ---- Schematic (RTL netlist graph) ----
+@app.get("/schematic")
+def schematic_route(top: str = "gamma", max_nodes: int = 400) -> Dict[str, Any]:
+    """Layered RTL-level netlist graph (yosys proc + opt_clean) for the
+    schematic view. Cells carry their source line for cross-probing."""
+    return schematic_mod.build(top=top, max_nodes=max_nodes)
+
+
+@app.post("/schematic")
+def schematic_post(req: CodeIn, top: str = "gamma") -> Dict[str, Any]:
+    return schematic_mod.build(req.code, top=top)
+
+
 @app.post("/chat", response_model=ChatOut)
 async def chat(req: ChatIn) -> ChatOut:
     s = load_settings()
@@ -353,11 +575,12 @@ async def chat(req: ChatIn) -> ChatOut:
         raise HTTPException(
             503, "Hermes Gateway credentials missing (set HERMES_GATEWAY_API_KEY)"
         )
+    ctx, citations = _design_digest(req.message)
     gw = HermesGateway(
         base_url=s.hermes_gateway_base_url,
         api_key=s.hermes_gateway_api_key,
         model=s.hermes_gateway_model,
-        instructions=agents.apply_eda_skills(_RTL_ASSISTANT_INSTRUCTIONS) + _design_digest(),
+        instructions=agents.apply_eda_skills(_RTL_ASSISTANT_INSTRUCTIONS) + ctx,
         timeout=s.hermes_gateway_timeout,
     )
     try:
@@ -365,7 +588,7 @@ async def chat(req: ChatIn) -> ChatOut:
                                   session_id=req.session)
     except RuntimeError as exc:
         raise HTTPException(502, str(exc))
-    return ChatOut(content=resp.content, user_id=req.user_id)
+    return ChatOut(content=resp.content, user_id=req.user_id, citations=citations)
 
 
 # Serve the built SPA when present (production single-container mode).

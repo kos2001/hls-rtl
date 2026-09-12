@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { renderMD } from './md'
+import { log, traced } from './log'
 import { Busy, useElapsed } from './ui'
+import { Citations } from './Knowledge'
+import type { KbChunk, SkillReport, Uarch } from './types'
+import { useT } from './i18n'
 
 const AGENT_HINT = 'agent loop can take ~30-60s'
 
@@ -71,10 +75,19 @@ const PLAN_LEGEND: [PlanStep['tag'], string][] = [
 ]
 
 export function PlanTab({ gatewayReady }: { gatewayReady: boolean }) {
-  const [uarch, setUarch] = useState(
-    '8-bit per-channel gamma LUT, 1 px/cycle, ready/valid handshake.\nCHANGED: add a 2-deep skid buffer for backpressure.',
-  )
-  const [algo, setAlgo] = useState('out = lut[in] per channel')
+  const t = useT()
+  // The planner's input is the real spec, not a paraphrase of it. A two-line
+  // placeholder produced plans against a design that does not exist; loading
+  // docs/UARCH.md means a plan is written against the contract the RTL actually
+  // implements, and the user edits only the delta.
+  const [spec, setSpec] = useState<Uarch | null>(null)
+  const [delta, setDelta] = useState(
+    'CHANGED: make FIFO_DEPTH=16 the default instead of 8.')
+  const [algo, setAlgo] = useState(
+    'out_r = lut_r[in_r]; out_g = lut_g[in_g]; out_b = lut_b[in_b]  (golden/gamma_golden.py::apply_gamma)')
+
+  useEffect(() => { api.uarch().then(setSpec).catch(() => setSpec(null)) }, [])
+  const uarch = spec ? `${spec.spec}\n\n## 9. CHANGED\n\n${delta}` : delta
   const [plan, setPlan] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -82,9 +95,17 @@ export function PlanTab({ gatewayReady }: { gatewayReady: boolean }) {
 
   async function generate() {
     setBusy(true); setErr(null); setPlan(null)
-    try { setPlan((await api.plan(uarch, algo)).plan) }
-    catch (e) { setErr(e instanceof Error ? e.message : String(e)) }
-    finally { setBusy(false) }
+    const r = await traced(
+      { stage: 'plan', tool: 'hermes-gateway', design: 'gamma', cmd: 'plan --uarch --algorithm' },
+      () => api.plan(uarch, algo),
+      (v) => {
+        log.info('PLAN', `${v.plan.split('\n').length} lines returned`)
+        return { status: 'pass' }
+      },
+    ).catch(() => null)
+    if (r) setPlan(r.plan)
+    else setErr('planner call failed — see the transcript for the error')
+    setBusy(false)
   }
 
   const steps = plan ? parsePlan(plan) : []
@@ -103,13 +124,23 @@ export function PlanTab({ gatewayReady }: { gatewayReady: boolean }) {
           한글로 입력하면 한글 플랜이 생성됩니다 (태그는 NEW/MODIFIED/UNCHANGED 유지).
           {!gatewayReady && ' Requires the Hermes Gateway key.'}
         </p>
-        <label className="fld-label">uArch document (existing + changed)</label>
-        <textarea value={uarch} onChange={(e) => setUarch(e.target.value)} rows={7} />
+        <div className="spec-row">
+          <span className="fld-label">{t('uArch specification (read-only input)')}</span>
+          <span className={`pill ${spec ? 'pill-ok' : 'pill-warn'}`}>
+            {spec ? `${spec.path} · ${spec.chars.toLocaleString()} chars` : 'docs/UARCH.md unavailable'}
+          </span>
+        </div>
+        <p className="muted small">
+          The full spec is sent as the planner's input; edit only the delta below.
+          Steps are tagged against its sections so regeneration touches what moved.
+        </p>
+        <label className="fld-label">{t('CHANGED — the proposal')}</label>
+        <textarea value={delta} onChange={(e) => setDelta(e.target.value)} rows={4} />
         <label className="fld-label">Algorithm reference (Python golden)</label>
         <textarea value={algo} onChange={(e) => setAlgo(e.target.value)} rows={3} />
         <div className="chat-actions">
-          <button onClick={generate} disabled={busy || !uarch.trim()}>
-            {busy ? 'Planning…' : 'Generate plan'}
+          <button onClick={generate} disabled={busy || !delta.trim()}>
+            {busy ? t('Planning…') : t('Generate plan')}
           </button>
         </div>
         {busy && <Busy label="Planner running via Hermes Gateway" sec={sec} hint={AGENT_HINT} />}
@@ -118,7 +149,7 @@ export function PlanTab({ gatewayReady }: { gatewayReady: boolean }) {
 
       <section className="card plan-result">
         <div className="plan-result-head">
-          <h2>Implementation plan</h2>
+          <h2>{t('Implementation plan')}</h2>
           {steps.length > 0 && (
             <div className="pill-row">
               {PLAN_LEGEND.filter(([t]) => counts[t as string]).map(([t]) => (
@@ -128,7 +159,7 @@ export function PlanTab({ gatewayReady }: { gatewayReady: boolean }) {
           )}
         </div>
         {!plan && !busy && (
-          <p className="muted small">No plan yet — describe the uArch change and generate.</p>
+          <p className="muted small">{t('No plan yet — describe the uArch change and generate.')}</p>
         )}
         {steps.length > 0 && (
           <div className="steps">{steps.map((s) => <StepCard key={s.n} step={s} />)}</div>
@@ -146,9 +177,13 @@ export function PlanTab({ gatewayReady }: { gatewayReady: boolean }) {
 interface ChatMsg {
   role: 'user' | 'assistant'
   content: string
+  /** Grounding passages for this reply, so the answer can be checked. */
+  citations?: KbChunk[]
 }
 
-export function ChatPanel({ gatewayReady }: { gatewayReady: boolean }) {
+export function ChatPanel({ gatewayReady, skills }:
+  { gatewayReady: boolean; skills?: SkillReport | null }) {
+  const t = useT()
   const [message, setMessage] = useState('')
   const [history, setHistory] = useState<ChatMsg[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -168,30 +203,40 @@ export function ChatPanel({ gatewayReady }: { gatewayReady: boolean }) {
     if (!q || busy) return
     setBusy(true); setError(null); setMessage('')
     setHistory((h) => [...h, { role: 'user', content: q }])
-    try {
-      const res = await api.chat(q, session)
-      setHistory((h) => [...h, { role: 'assistant', content: res.content }])
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-    }
+    const res = await traced(
+      { stage: 'assistant', tool: 'hermes-gateway', design: 'gamma',
+        cmd: `chat --session ${session.slice(0, 8)} "${q.slice(0, 60)}${q.length > 60 ? '…' : ''}"` },
+      () => api.chat(q, session),
+      (v) => ({ status: 'pass', extra: `${v.content.length} chars` }),
+    ).catch(() => null)
+    if (res) setHistory((h) => [...h,
+      { role: 'assistant', content: res.content, citations: res.citations }])
+    else setError('gateway call failed — see the transcript for the error')
+    setBusy(false)
   }
 
   return (
     <section className="card chat">
       <div className="signoff-head">
-        <h2>Ask Hermes</h2>
+        <h2>{t('Ask Hermes')}</h2>
         {history.length > 0 && (
           <button className="btn-ghost"
             onClick={() => { setHistory([]); setError(null); setSession(crypto.randomUUID()) }}>
-            Clear (new session)
+            {t('Clear (new session)')}
           </button>
         )}
       </div>
       <p className="muted small">
-        RTL-assistant via the Hermes Gateway, grounded in the EDA skills
-        (systemverilog · fpga · ppa-closure-agent).
+        Answers are grounded in the retrieved knowledge base (see the Knowledge tab);
+        every reply lists the passages behind it.{' '}
+        RTL-assistant via the Hermes Gateway
+        {skills?.active.length
+          ? <>, grounded in {skills.active.length} loaded skill
+              {skills.active.length > 1 ? 's' : ''} (<code>{skills.active.join(' · ')}</code>)</>
+          : ', with no agent skills loaded'}.
+        {skills?.missing.length
+          ? ` ${skills.missing.length} wanted skill(s) are not installed in profile ${skills.profile} — run scripts/sync_hermes_skills.py.`
+          : ''}
         {!gatewayReady && ' Set HERMES_GATEWAY_API_KEY to enable.'}
       </p>
 
@@ -203,6 +248,7 @@ export function ChatPanel({ gatewayReady }: { gatewayReady: boolean }) {
               <div className="bubble-body">
                 {m.role === 'assistant' ? renderMD(m.content) : m.content}
               </div>
+              {m.citations?.length ? <Citations items={m.citations} /> : null}
             </div>
           ))}
           {busy && (
