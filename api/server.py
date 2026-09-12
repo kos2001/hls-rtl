@@ -37,7 +37,7 @@ from gen_dashboard_data import build_results  # noqa: E402
 from . import oracle as oracle_mod  # noqa: E402
 from . import rtl_segments, reflection, equiv as equiv_mod, agents  # noqa: E402
 from . import skills as skills_mod, waveform as waveform_mod, schematic as schematic_mod  # noqa: E402
-from . import knowledge as kb, improve as improve_mod  # noqa: E402
+from . import knowledge as kb, improve as improve_mod, mutate as mutate_mod  # noqa: E402
 from . import graph_rag  # noqa: E402
 
 app = FastAPI(title="Gamma Verification API", version="0.1.0")
@@ -356,6 +356,29 @@ def improve_prove(req: ProveIn) -> Dict[str, Any]:
     bit-exact values and ordering — see `proves` / `does_not_prove`."""
     return improve_mod.prove(req.code, bp_profile=req.bp_profile,
                              run_regression=req.run_regression).to_dict()
+
+
+@app.get("/improve/mutants")
+def improve_mutants(limit: int = 0) -> Dict[str, Any]:
+    """The mutant set without running anything — cheap, for seeing which fault
+    classes are covered before paying for a campaign."""
+    return mutate_mod.preview(limit=limit)
+
+
+class MutateIn(BaseModel):
+    limit: int = 12
+    bp_profile: str = "single"
+    operators: Optional[List[str]] = None
+
+
+@app.post("/improve/mutate")
+def improve_mutate(req: MutateIn) -> Dict[str, Any]:
+    """Inject single faults and run the real gate on each.
+
+    Measures detection power, which a pass rate does not. Roughly 10s per
+    mutant, so `limit` is there to keep an interactive run interactive."""
+    return mutate_mod.run(limit=req.limit, operators=req.operators,
+                          bp_profile=req.bp_profile)
 
 
 @app.get("/improve/audit")

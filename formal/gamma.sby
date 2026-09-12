@@ -26,12 +26,23 @@
 # will do.
 
 [tasks]
-bmc
-cover
-deep
 prove
+cover
+bmc
+deep
+prove_sync
+cover_sync
 
 [options]
+# *_sync repeat the proof with LUT_SYNC_READ=1. That generate branch is not
+# elaborated by default, so without these tasks the registered-read datapath has
+# no formal coverage at all — mutation testing found an occupancy off-by-one
+# surviving in exactly that gap.
+prove_sync: mode prove
+prove_sync: depth 16
+cover_sync: mode cover
+cover_sync: depth 20
+
 bmc:   mode bmc
 bmc:   depth 16
 cover: mode cover
@@ -48,6 +59,8 @@ smtbmc z3
 # sby flattens [files] into the task's src/ dir, so reference basenames here.
 read -formal -sv gamma_props.sv
 read -formal gamma.v
+prove_sync: chparam -set LUT_SYNC_READ 1 gamma_props
+cover_sync: chparam -set LUT_SYNC_READ 1 gamma_props
 hierarchy -top gamma_props
 proc
 flatten
@@ -57,6 +70,14 @@ flatten
 connect -set \dut_count  \dut.count
 connect -set \dut_rd_ptr \dut.rd_ptr
 connect -set \dut_wr_ptr \dut.wr_ptr
+# Nothing is in flight in the default mode; in registered-read mode the stage-1
+# entry is.
+prove:      connect -set \dut_pending 1'b0
+cover:      connect -set \dut_pending 1'b0
+bmc:        connect -set \dut_pending 1'b0
+deep:       connect -set \dut_pending 1'b0
+prove_sync: connect -set \dut_pending \dut.g_lut_sync.s1_valid
+cover_sync: connect -set \dut_pending \dut.g_lut_sync.s1_valid
 opt_clean
 
 [files]

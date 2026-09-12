@@ -178,7 +178,11 @@ as valid data. `test_reset_state` gates this.
 | `LUT_SYNC_READ=1` | **2 cycles** | LUT read captured in a register at the accept edge, written into the FIFO one cycle later |
 
 Values and ordering are identical in both modes — the difference is latency
-only, verified bit-exact with `EXTRA_ARGS="-GLUT_SYNC_READ=1"`.
+only. This is checked, not asserted: the `configs` sign-off stage re-runs the
+bit-exact comparison with `-GLUT_SYNC_READ=1`, and `prove_sync` re-proves the
+handshake invariants in that configuration. Both exist because mutation testing
+found faults surviving in the `g_lut_sync` branch, which the default
+elaboration never builds.
 
 The FIFO adds latency **only while the downstream is stalled**. With
 `out_ready` continuously high, occupancy never exceeds 1.
@@ -234,7 +238,8 @@ when it proposes a change:
 | Reset clears control state | `test_reset_state` |
 | Runtime LUT reload | `test_lut_reload` |
 | Bit-exactness of all three models | SHA-256 frame hash per pattern |
-| No overflow, no false backpressure, no retraction, reset empties | `formal/gamma_props.sv` — **unbounded** (`sby -f formal/gamma.sby prove`) |
+| No overflow, no false backpressure, no retraction, reset empties | `formal/gamma_props.sv` — **unbounded**, in both LUT read modes (`prove`, `prove_sync`) |
+| The registered-read path behaves identically | `configs` gate stage + `prove_sync` |
 
 Pattern order in `tb/test_set.py` is a contract — `build/sc_out.txt` is consumed
 sequentially, so patterns may only be **appended**.

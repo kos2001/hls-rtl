@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from './api'
 import { log, traced } from './log'
 import { Busy, useElapsed } from './ui'
-import type { Audit, LoopAttempt, LoopResult, Proof } from './types'
+import type { Audit, LoopAttempt, LoopResult, MutationRun, Proof } from './types'
 import { useT } from './i18n'
 
 /**
@@ -96,6 +96,8 @@ export function ImprovePane() {
   const [result, setResult] = useState<LoopResult | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [applied, setApplied] = useState<string | null>(null)
+  const [mut, setMut] = useState<MutationRun | null>(null)
+  const [mutLimit, setMutLimit] = useState(12)
   const sec = useElapsed(!!busy)
 
   useEffect(() => { api.audit().then(setAudit).catch(() => setAudit(null)) }, [])
@@ -135,6 +137,26 @@ export function ImprovePane() {
         return { status: v.outcome === 'PROVEN_CHANGE' ? 'pass' : 'fail', extra: v.outcome }
       })
     if (r) setResult(r)
+    setBusy(null)
+  }
+
+  async function runMutation() {
+    setBusy('mutate'); setMut(null)
+    const r = await traced(
+      { stage: 'mutation', tool: 'fault injection + gate', design: 'gamma',
+        cmd: `mutate --limit ${mutLimit}` },
+      () => api.mutate(mutLimit),
+      (v) => {
+        log.info('MUTATE', `${v.caught}/${v.run} caught — score ${v.score}%`)
+        for (const [st, n] of Object.entries(v.caught_by_stage)) {
+          log.note('MUTATE', `${st} caught ${n}`)
+        }
+        for (const x of v.results.filter((r) => !r.caught)) {
+          log.warn('MUTATE', `SURVIVED rtl/gamma.v:${x.line} — ${x.description}`)
+        }
+        return { status: v.survived ? 'fail' : 'pass', extra: `${v.score}%` }
+      })
+    if (r) setMut(r)
     setBusy(null)
   }
 
@@ -189,6 +211,61 @@ export function ImprovePane() {
           </table>
         </div>
         {audit && <p className="panel-foot muted small">{audit.note}</p>}
+      </section>
+
+      <section className="panel">
+        <div className="panel-head">
+          <h2>{t('Mutation coverage')}</h2>
+          <div className="tb-group">
+            <span className="tb-label">{t('mutants')}</span>
+            <input className="iters" type="number" min={1} max={48} value={mutLimit}
+                   onChange={(e) => setMutLimit(Math.max(1, Math.min(48, +e.target.value)))} />
+            <button className="btn-run" onClick={runMutation} disabled={!!busy}>
+              {busy === 'mutate' ? `■ ${t('Running…')}` : `▶ ${t('Run campaign')}`}
+            </button>
+          </div>
+        </div>
+        <p className="muted small">
+          {t('Injects one plausible fault at a time and runs the real gate on each. A pass rate says the design agrees with the golden model on the inputs someone wrote down; this says whether the suite would notice if the design were wrong. ~10s per mutant.')}
+        </p>
+        {busy === 'mutate' && (
+          <Busy label={t('Injecting faults and running the gate')} sec={sec}
+                hint={`${mutLimit} x ~10s`} />
+        )}
+        {mut && (
+          <>
+            <div className={`verdict verdict-${mut.survived ? 'REJECTED' : 'SIGNED_OFF'}`}>
+              {mut.caught}/{mut.run} caught · score {mut.score}%
+              {mut.survived ? ` · ${mut.survived} survived` : ''}
+            </div>
+            <div className="checks">
+              {Object.entries(mut.caught_by_stage).map(([st, n]) => (
+                <span key={st} className="check check-ok">{st} ×{n}</span>
+              ))}
+            </div>
+            <div className="table-wrap" style={{ marginTop: 8 }}>
+              <table className="grid">
+                <thead><tr>
+                  <th>{t('fault')}</th><th className="num">{t('line')}</th>
+                  <th>{t('caught by')}</th><th>{t('detail')}</th>
+                </tr></thead>
+                <tbody>
+                  {mut.results.map((x) => (
+                    <tr key={x.id}>
+                      <td className="mono">{x.operator}</td>
+                      <td className="num">{x.line}</td>
+                      <td>{x.caught
+                        ? <span className="badge badge-pass">{x.caught_by}</span>
+                        : <span className="badge badge-fail">survived</span>}</td>
+                      <td className="muted small gap-why">{x.description}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="panel-foot muted small">{mut.note}</p>
+          </>
+        )}
       </section>
 
       <section className="panel">

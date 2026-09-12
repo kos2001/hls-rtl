@@ -109,6 +109,7 @@ class Proof:
                 and all(p.ok for p in self.patterns)
                 and self.stages.get("simulate") == "pass"
                 and self.stages.get("4state") != "fail"
+                and self.stages.get("configs") != "fail"
                 and self.stages.get("formal") != "fail")
 
     #: What a PROVEN verdict does and does not license you to say. Carried on
@@ -133,7 +134,7 @@ class Proof:
         if self.equivalent:
             return "PROVEN"
         if any(self.stages.get(k) == "fail"
-               for k in ("simulate", "4state", "formal")):
+               for k in ("simulate", "4state", "configs", "formal")):
             return "REJECTED"
         return "INCONCLUSIVE"
 
@@ -176,12 +177,36 @@ class Proof:
 
 
 def _run_regression(candidate: Path, timeout: int, bp_profile: str,
-                    sim: str = "verilator") -> Tuple[str, int]:
+                    sim: str = "verilator", *, extra_args: str = "",
+                    testcase: str = "", build_tag: str = "") -> Tuple[str, int]:
+    """Run the cocotb regression once.
+
+    `build_tag` gives the run its own SIM_BUILD, and every call passes one.
+    Two separate reasons, both found the hard way:
+
+    * cocotb does not treat EXTRA_ARGS as a build dependency, so a second run
+      that only changes `-GLUT_SYNC_READ=1` reuses the model compiled for the
+      default configuration and reports a pass for a configuration it never
+      built. The `configs` stage did exactly that until a mutant survived it
+      that a manual run of the same command caught.
+
+    * The default SIM_BUILD is `tb/sim_build`, which is where a developer's
+      plain `make` builds. Without a tag, proving a candidate leaves that
+      directory holding a mutant — and mixing Verilator and Icarus artifacts —
+      so the next `make -C tb` fails for reasons that have nothing to do with
+      the working tree. The gate must not touch the workspace it is judging.
+    """
     env = sim_env(BP_PROFILE=bp_profile)
+    cmd = ["make", "-s", f"SIM={sim}", f"VERILOG_SOURCES={candidate}"]
+    if build_tag:
+        cmd.append(f"SIM_BUILD=sim_build_{build_tag}")
+    if extra_args:
+        cmd.append(f"EXTRA_ARGS={extra_args}")
+    if testcase:
+        cmd.append(f"TESTCASE={testcase}")
     try:
         proc = subprocess.run(
-            ["make", "-s", f"SIM={sim}", f"VERILOG_SOURCES={candidate}"],
-            cwd=str(_TB), env=env, capture_output=True, text=True, timeout=timeout,
+            cmd, cwd=str(_TB), env=env, capture_output=True, text=True, timeout=timeout,
         )
     except subprocess.TimeoutExpired:
         return (f"TIMEOUT after {timeout}s", 124)
@@ -202,7 +227,8 @@ def _run_4state(candidate: Path, timeout: int) -> Tuple[str, str]:
     """
     if shutil.which("iverilog") is None:
         return ("skip", "iverilog not available")
-    log, rc = _run_regression(candidate, timeout, "single", sim="icarus")
+    log, rc = _run_regression(candidate, timeout, "single", sim="icarus",
+                              build_tag="icarus")
     m = _SUMMARY_RE.search(log)
     if not m:
         tail = log.strip().splitlines()[-1:] or [""]
@@ -266,7 +292,10 @@ def _run_formal(candidate: Path, timeout: int) -> Tuple[str, str]:
         (work / "gamma.sby").write_text(sby)
 
         results, failures = {}, []
-        for task in ("prove", "cover"):
+        # Both configurations. The registered-read branch is not elaborated by
+        # default, so without the *_sync tasks it has no formal coverage — which
+        # is where mutation testing found an occupancy off-by-one surviving.
+        for task in ("prove", "cover", "prove_sync", "cover_sync"):
             try:
                 proc = subprocess.run(
                     ["sby", "-f", "gamma.sby", task], cwd=str(work),
@@ -287,10 +316,42 @@ def _run_formal(candidate: Path, timeout: int) -> Tuple[str, str]:
         return ("pass" if ok else "fail", detail)
 
 
+# Synthesis-time configurations the design supports and the default run does not
+# elaborate. A `generate` branch that is never selected has no coverage at all:
+# mutation testing found three faults surviving inside `g_lut_sync` purely
+# because LUT_SYNC_READ defaults to 0, so that whole path is dead code for the
+# gate. Only the 3-way comparison runs here — the latency contract legitimately
+# differs in this mode (2 cycles, not 1), so the directed latency test would fail
+# for a reason that is not a bug.
+_CONFIGS: Tuple[Tuple[str, str, str], ...] = (
+    ("LUT_SYNC_READ=1", "-GLUT_SYNC_READ=1", "test_gamma_3way"),
+)
+
+
+def _run_configs(candidate: Path, timeout: int, bp_profile: str) -> Tuple[str, str]:
+    """Re-run the bit-exact comparison in each supported non-default config."""
+    if not rtl_qor.verilator_available():
+        return ("skip", "verilator not available")
+    outcomes = []
+    for label, extra, testcase in _CONFIGS:
+        tag = re.sub(r"\W+", "_", label).strip("_").lower()
+        log, rc = _run_regression(candidate, timeout, bp_profile,
+                                  extra_args=extra, testcase=testcase,
+                                  build_tag=tag)
+        m = _SUMMARY_RE.search(log)
+        if not m:
+            return ("fail", f"{label}: could not parse cocotb results")
+        total, passed, failed = (int(m.group(i)) for i in (1, 2, 3))
+        ok = failed == 0 and rc == 0
+        outcomes.append((label, ok, f"{passed}/{total}"))
+    detail = ", ".join(f"{l} {c}{'' if ok else ' FAIL'}" for l, ok, c in outcomes)
+    return ("pass" if all(ok for _, ok, _ in outcomes) else "fail", detail)
+
+
 def prove(candidate_verilog: Optional[str] = None, *, name: str = "",
           timeout: int = 600, bp_profile: str = "single",
           run_regression: bool = True, run_formal: bool = True,
-          run_4state: bool = True) -> Proof:
+          run_4state: bool = True, run_configs: bool = True) -> Proof:
     """Gate a candidate: static checks, then the real scoreboard against it.
 
     `candidate_verilog=None` proves the project RTL itself — the baseline, and a
@@ -345,7 +406,8 @@ def prove(candidate_verilog: Optional[str] = None, *, name: str = "",
         proof.stages["simulate"] = "skip"
         proof.details["simulate"] = "verilator not available"
     else:
-        log, rc = _run_regression(path, timeout, bp_profile)
+        log, rc = _run_regression(path, timeout, bp_profile,
+                                  build_tag=f"gate_{path.stem[:24]}")
         proof.log_tail = log[-3000:]
         proof.patterns = _parse_patterns(log)
         proof.throughput = {m["tag"]: float(m["cpp"]) for m in _TPUT_RE.finditer(log)}
@@ -361,7 +423,17 @@ def prove(candidate_verilog: Optional[str] = None, *, name: str = "",
             proof.stages["simulate"] = "fail"
             proof.details["simulate"] = "could not parse cocotb results"
 
-    # 5. 4-state. The same tests, under a simulator that can represent X.
+    # 5. non-default configurations. A generate branch nobody elaborates is a
+    #    branch nobody tests.
+    if run_configs and not blocked and proof.stages.get("simulate") == "pass":
+        st, detail = _run_configs(path, timeout=timeout, bp_profile=bp_profile)
+        proof.stages["configs"] = st
+        proof.details["configs"] = detail
+    elif run_configs:
+        proof.stages["configs"] = "skip"
+        proof.details["configs"] = "not run — the default configuration must pass first"
+
+    # 6. 4-state. The same tests, under a simulator that can represent X.
     if run_4state and not blocked and proof.stages.get("simulate") == "pass":
         st, detail = _run_4state(path, timeout=timeout)
         proof.stages["4state"] = st
@@ -372,7 +444,7 @@ def prove(candidate_verilog: Optional[str] = None, *, name: str = "",
                                    if not blocked else
                                    "not run — an earlier gating stage failed")
 
-    # 6. formal. Independent of the scoreboard on purpose: it is here precisely
+    # 7. formal. Independent of the scoreboard on purpose: it is here precisely
     #    to cover what simulation provably cannot see.
     if run_formal and not blocked:
         st, detail = _run_formal(path, timeout=timeout)
@@ -431,9 +503,14 @@ _GAP_CHECKS = (
      "add a formal property relating out_* to a shadow of the LUT writes, or "
      "accept that the datapath is simulation-proven only"),
     ("mutation coverage", "medium",
-     "Nothing measures whether the testbench would CATCH a bug. Pass rate is "
-     "not sensitivity.",
-     "mcy init && mcy run"),
+     "Measured by `api/mutate.py` rather than assumed: injecting single faults "
+     "and running the real gate. The first campaign scored 83% and every "
+     "survivor was inside the `LUT_SYNC_READ=1` generate branch, which the "
+     "default run does not elaborate — now covered by the `configs` stage. Run "
+     "it again after changing the RTL; a survivor is an edit every check here "
+     "accepts.",
+     "POST /improve/mutate, or python -c 'from api import mutate; "
+     "print(mutate.run(limit=20))'"),
     ("systemc rung", "medium",
      "build/sc_out.txt absent, so the SystemC representation is unproven; only "
      "two of the three models are actually compared.",
