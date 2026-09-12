@@ -132,15 +132,27 @@ code {
 
 /* ---------------------------------------------------------------- shell ---- */
 .workbench {
+  /* Pane sizes are fluid by default — clamp() tracks the viewport, so the
+     workspace rebalances on resize and on browser zoom without JS. A drag on a
+     splitter overrides these inline; double-clicking it removes the override
+     and hands the pane back to the fluid default. */
+  --nav-w: clamp(168px, 15vw, 320px);
+  --props-w: clamp(190px, 17vw, 360px);
+  --console-h: clamp(116px, 24vh, 460px);
+
   display: grid;
-  grid-template-rows: 28px 36px minmax(0, 1fr) auto 24px;
+  /* auto rows, not fixed px: chrome then grows with the user's font size
+     instead of clipping its own text. */
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
   height: 100vh;
+  height: 100dvh; /* mobile/ipad browser chrome shrinks the visual viewport */
 }
 
 /* ------------------------------------------------------------- menu bar ---- */
 .menubar {
   display: flex;
   align-items: stretch;
+  min-height: 28px;
   gap: 2px;
   background: var(--chrome);
   border-bottom: 1px solid var(--border);
@@ -232,8 +244,10 @@ code {
 .toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  min-height: 36px;
   gap: 3px;
-  padding: 0 8px;
+  padding: 3px 8px;
   background: var(--chrome-2);
   border-bottom: 1px solid var(--border);
 }
@@ -260,9 +274,11 @@ code {
 
 /* ------------------------------------------------------------ workspace ---- */
 .workspace {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  /* flex, not grid: the splitters are real children between the panes, and a
+     grid template would have to be rewritten every time one is toggled off. */
+  display: flex;
   min-height: 0;
+  min-width: 0;
   background: var(--work);
 }
 
@@ -272,8 +288,8 @@ code {
   overflow-y: auto;
   font-size: 12px;
 }
-.navigator { width: 234px; border-right: 1px solid var(--border); }
-.properties { width: 268px; border-left: 1px solid var(--border); }
+.navigator { flex: none; width: var(--nav-w); border-right: 1px solid var(--border); }
+.properties { flex: none; width: var(--props-w); border-left: 1px solid var(--border); }
 
 .nav-title {
   position: sticky;
@@ -814,7 +830,7 @@ textarea:focus, .fld-input:focus { outline: none; border-color: var(--accent); }
   background: var(--pane);
   border-top: 1px solid var(--border);
   min-height: 0;
-  height: 236px;
+  height: var(--console-h);
 }
 .console-collapsed { height: auto; }
 
@@ -926,7 +942,9 @@ textarea:focus, .fld-input:focus { outline: none; border-color: var(--accent); }
 .statusbar {
   display: flex;
   align-items: center;
-  gap: 16px;
+  flex-wrap: wrap;
+  min-height: 24px;
+  gap: 8px 16px;
   padding: 0 10px;
   background: var(--chrome);
   border-top: 1px solid var(--border);
@@ -939,6 +957,29 @@ textarea:focus, .fld-input:focus { outline: none; border-color: var(--accent); }
 .sb-fail { color: var(--fail) !important; }
 .sb-spacer { flex: 1; }
 .sb-busy { color: var(--accent); }
+
+/* ------------------------------------------------------------- splitters ---- */
+.splitter {
+  flex: none;
+  position: relative;
+  background: var(--border);
+  transition: background 0.12s;
+}
+/* The visible line stays hairline-thin; the grab area is widened with a
+   pseudo-element so the target is comfortable without a fat divider. */
+.splitter::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+.splitter-x { width: 1px; cursor: col-resize; }
+.splitter-x::after { inset: 0 -3px; }
+.splitter-y { height: 1px; cursor: row-resize; }
+.splitter-y::after { inset: -3px 0; }
+.splitter:hover, .splitter-active, .splitter:focus-visible {
+  background: var(--accent);
+  outline: none;
+}
 
 /* ----------------------------------------------------------------- misc ---- */
 .trend-row { display: flex; align-items: center; gap: 9px; margin: 7px 0; }
@@ -1069,9 +1110,26 @@ textarea:focus, .fld-input:focus { outline: none; border-color: var(--accent); }
   overflow-x: auto; white-space: pre; margin: 5px 0;
 }
 
-/* narrow windows: the side panes are the first thing to go */
-@media (max-width: 1000px) {
-  .navigator, .properties { display: none; }
+/* Narrow windows degrade in stages rather than dropping both docks at once.
+   Properties goes first — it describes a selection the navigator makes, so the
+   navigator is the more useful of the two to keep. */
+@media (max-width: 1180px) {
+  .properties, .properties + .splitter-x, .splitter-x:has(+ .properties) { display: none; }
+}
+@media (max-width: 860px) {
+  .navigator, .navigator + .splitter-x { display: none; }
+  .brand-design { display: none; }
+  .toolbar-right { width: 100%; justify-content: flex-start; }
+}
+@media (max-width: 620px) {
+  .brand-name { display: none; }
+  .console-search { width: 110px; }
+  .stat-strip { grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); }
+}
+
+/* Short windows: give the work area the room instead of the transcript. */
+@media (max-height: 680px) {
+  .workbench { --console-h: clamp(96px, 20vh, 200px); }
 }
 
 /* elaboration parameters: listed beside the waveform, never plotted */
