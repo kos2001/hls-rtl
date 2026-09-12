@@ -4,9 +4,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
+**The point of the project:** an agent can write plausible RTL but cannot check
+it. This repo supplies the missing half — an **executable oracle** (the Python
+golden model) and a loop that proves every representation against it, pattern by
+pattern, with SHA-256 frame hashes. `README.md` states the thesis; the UI's
+Overview tab states it to the user. Keep that framing when editing either: the
+deliverable is *evidence*, and the honesty rule that runs through it is **a
+skipped stage is missing evidence, not a pass**.
+
 A bit-exact verification skeleton for a **gamma-correction pixel core**, kept in
 lockstep across three independent models. A small FastAPI **api-server** and a
 React **dashboard** sit on top to surface results and RTL quality.
+
+Documents that are part of the flow, not commentary on it:
+- `docs/UARCH.md` — the microarchitecture spec. It is the **design input**
+  `POST /plan` consumes and a knowledge-base source, so a stale uArch makes the
+  planner plan against a design that does not exist. Its `## 9. CHANGED`
+  section is where a proposal goes.
+- `docs/MANUAL.md` — the user manual, rendered in-app under the **Manual** tab
+  (`GET /doc/{name}`, whitelisted) and indexed so the assistant can answer
+  "how do I run sign-off".
 
 Two layers, do not confuse them:
 - **Verification core** (`golden/`, `systemc/`, `rtl/`, `tb/`, `tests/`, `scripts/`) — the actual hardware + its 3-way scoreboard.
@@ -113,7 +130,9 @@ severity-tagged record of the session — the format is specified by the
 alike. Views: Scoreboard, Waveform (`src/Waveform.tsx`, canvas), Schematic
 (`src/Schematic.tsx`, SVG), Quality, Sign-off, Flows, Knowledge (`src/Knowledge.tsx`
 — the same retrieval the agent gets, with scores, so a bad answer can be traced to
-retrieval vs. the model), Assistant.
+retrieval vs. the model), Assistant, and Manual (`src/Help.tsx`). **Overview is the
+default view** and carries the thesis plus the live proof chain — it is the answer
+to "why does this exist", so do not demote it to a stats page.
 
 ## Conventions
 

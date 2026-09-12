@@ -31,6 +31,13 @@ export function renderMD(text: string): ReactNode[] {
   while (i < lines.length) {
     const line = lines[i]
 
+    // horizontal rule
+    if (/^\s*(-{3,}|_{3,}|\*{3,})\s*$/.test(line)) {
+      nodes.push(<div className="md-hr" key={`k${key++}`} />)
+      i++
+      continue
+    }
+
     // fenced code block
     if (line.trimStart().startsWith('```')) {
       const buf: string[] = []
@@ -50,6 +57,51 @@ export function renderMD(text: string): ReactNode[] {
       const cls = `md-h${h[1].length}`
       nodes.push(<div className={cls} key={`k${key++}`}>{inline(h[2], `k${key}`)}</div>)
       i++
+      continue
+    }
+
+    // GFM table: a header row, a |---|---| separator, then body rows. The docs
+    // lean on tables heavily (port lists, verdict meanings, troubleshooting), and
+    // rendering them as raw pipes makes the manual unreadable.
+    if (line.includes('|') && /^\s*\|?[\s:-]*-[\s:|-]*\|/.test(lines[i + 1] ?? '')) {
+      const cells = (row: string) =>
+        row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim())
+      const head = cells(line)
+      i += 2
+      const body: string[][] = []
+      while (i < lines.length && lines[i].includes('|') && lines[i].trim()) {
+        body.push(cells(lines[i]))
+        i++
+      }
+      nodes.push(
+        <div className="md-table-wrap" key={`k${key++}`}>
+          <table className="md-table">
+            <thead>
+              <tr>{head.map((h, n) => <th key={n}>{inline(h, `k${key}-h${n}`)}</th>)}</tr>
+            </thead>
+            <tbody>
+              {body.map((row, rn) => (
+                <tr key={rn}>
+                  {row.map((c, cn) => <td key={cn}>{inline(c, `k${key}-${rn}-${cn}`)}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
+      )
+      continue
+    }
+
+    // blockquote
+    if (/^\s*>\s?/.test(line)) {
+      const buf: string[] = []
+      while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+        buf.push(lines[i].replace(/^\s*>\s?/, ''))
+        i++
+      }
+      nodes.push(
+        <div className="md-quote" key={`k${key++}`}>{renderMD(buf.join('\n'))}</div>,
+      )
       continue
     }
 

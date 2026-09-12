@@ -4,7 +4,7 @@ import { renderMD } from './md'
 import { log, traced } from './log'
 import { Busy, useElapsed } from './ui'
 import { Citations } from './Knowledge'
-import type { KbChunk, SkillReport } from './types'
+import type { KbChunk, SkillReport, Uarch } from './types'
 
 const AGENT_HINT = 'agent loop can take ~30-60s'
 
@@ -74,10 +74,18 @@ const PLAN_LEGEND: [PlanStep['tag'], string][] = [
 ]
 
 export function PlanTab({ gatewayReady }: { gatewayReady: boolean }) {
-  const [uarch, setUarch] = useState(
-    '8-bit per-channel gamma LUT, 1 px/cycle, ready/valid handshake.\nCHANGED: add a 2-deep skid buffer for backpressure.',
-  )
-  const [algo, setAlgo] = useState('out = lut[in] per channel')
+  // The planner's input is the real spec, not a paraphrase of it. A two-line
+  // placeholder produced plans against a design that does not exist; loading
+  // docs/UARCH.md means a plan is written against the contract the RTL actually
+  // implements, and the user edits only the delta.
+  const [spec, setSpec] = useState<Uarch | null>(null)
+  const [delta, setDelta] = useState(
+    'CHANGED: make FIFO_DEPTH=16 the default instead of 8.')
+  const [algo, setAlgo] = useState(
+    'out_r = lut_r[in_r]; out_g = lut_g[in_g]; out_b = lut_b[in_b]  (golden/gamma_golden.py::apply_gamma)')
+
+  useEffect(() => { api.uarch().then(setSpec).catch(() => setSpec(null)) }, [])
+  const uarch = spec ? `${spec.spec}\n\n## 9. CHANGED\n\n${delta}` : delta
   const [plan, setPlan] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -114,12 +122,22 @@ export function PlanTab({ gatewayReady }: { gatewayReady: boolean }) {
           한글로 입력하면 한글 플랜이 생성됩니다 (태그는 NEW/MODIFIED/UNCHANGED 유지).
           {!gatewayReady && ' Requires the Hermes Gateway key.'}
         </p>
-        <label className="fld-label">uArch document (existing + changed)</label>
-        <textarea value={uarch} onChange={(e) => setUarch(e.target.value)} rows={7} />
+        <div className="spec-row">
+          <span className="fld-label">uArch specification (read-only input)</span>
+          <span className={`pill ${spec ? 'pill-ok' : 'pill-warn'}`}>
+            {spec ? `${spec.path} · ${spec.chars.toLocaleString()} chars` : 'docs/UARCH.md unavailable'}
+          </span>
+        </div>
+        <p className="muted small">
+          The full spec is sent as the planner's input; edit only the delta below.
+          Steps are tagged against its sections so regeneration touches what moved.
+        </p>
+        <label className="fld-label">CHANGED — the proposal</label>
+        <textarea value={delta} onChange={(e) => setDelta(e.target.value)} rows={4} />
         <label className="fld-label">Algorithm reference (Python golden)</label>
         <textarea value={algo} onChange={(e) => setAlgo(e.target.value)} rows={3} />
         <div className="chat-actions">
-          <button onClick={generate} disabled={busy || !uarch.trim()}>
+          <button onClick={generate} disabled={busy || !delta.trim()}>
             {busy ? 'Planning…' : 'Generate plan'}
           </button>
         </div>

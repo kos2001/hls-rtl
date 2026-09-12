@@ -264,9 +264,14 @@ async def plan_route(req: PlanIn) -> Dict[str, Any]:
         raise HTTPException(503, "Hermes Gateway credentials missing (set HERMES_GATEWAY_API_KEY)")
     prompt = f"uArch document (existing + changed):\n{req.uarch}\n\nAlgorithm (Python):\n{req.algorithm}"
     planner = agents.build_planner()
-    # The plan's own inputs are the query: retrieve against the uArch text so a
-    # change to the FIFO pulls in the FIFO logic, not a generic digest.
-    ctx, citations = _design_digest(f"{req.uarch}\n{req.algorithm}")
+    # Retrieve against the CHANGED delta, not the whole uArch. The full spec is
+    # already in the prompt as the planner's input; querying with it just
+    # retrieves the spec's own sections back — spending the grounding budget on
+    # text the model can already see. The delta is what needs surrounding
+    # context (which RTL block, which test, which sibling model).
+    _, _, delta = req.uarch.partition("## 9. CHANGED")
+    query = (delta or req.uarch)[:1200] + "\n" + req.algorithm[:400]
+    ctx, citations = _design_digest(query)
     planner.instructions += ctx
     try:
         # Fresh session per plan request: plans are self-contained and must not
@@ -335,6 +340,51 @@ def graph_explain(node: str, budget: int = 1500) -> Dict[str, Any]:
 def graph_query(q: str, budget: int = 2000, dfs: bool = False) -> Dict[str, Any]:
     """Traverse the repo knowledge graph for a concept/relationship."""
     return graph_rag.query(q, budget=budget, dfs=dfs)
+
+
+# ---- Project documents ----
+# Whitelisted so the endpoint cannot be turned into an arbitrary file read.
+_DOCS = {
+    "MANUAL": _ROOT / "docs" / "MANUAL.md",
+    "UARCH": _ROOT / "docs" / "UARCH.md",
+    "TESTPLAN": _ROOT / "TESTPLAN.md",
+    "README": _ROOT / "README.md",
+}
+
+
+@app.get("/doc/{name}")
+def doc(name: str) -> Dict[str, Any]:
+    """A project document by name, for rendering inside the workbench."""
+    path = _DOCS.get(name.upper())
+    if path is None:
+        raise HTTPException(404, f"unknown document {name!r}; have {sorted(_DOCS)}")
+    if not path.exists():
+        raise HTTPException(404, f"{path.relative_to(_ROOT)} not found")
+    text = path.read_text(encoding="utf-8")
+    return {"name": name.upper(), "path": str(path.relative_to(_ROOT)),
+            "chars": len(text), "text": text}
+
+
+# ---- Microarchitecture spec ----
+@app.get("/uarch")
+def uarch() -> Dict[str, Any]:
+    """The uArch specification (docs/UARCH.md) — the design input `POST /plan`
+    consumes. Served so the UI can seed the planner with the real document
+    instead of a placeholder the user has to retype."""
+    p = _ROOT / "docs" / "UARCH.md"
+    if not p.exists():
+        raise HTTPException(404, "docs/UARCH.md not found")
+    text = p.read_text(encoding="utf-8")
+    # The "## CHANGED" tail is where a proposal goes; split it out so the UI can
+    # show the stable spec read-only and let the user edit only the delta.
+    marker = "\n## 9. CHANGED"
+    head, _, tail = text.partition(marker)
+    return {
+        "path": "docs/UARCH.md",
+        "chars": len(text),
+        "spec": head.rstrip(),
+        "changed_section": (marker + tail).strip() if tail else "",
+    }
 
 
 # ---- Knowledge base (retrieval grounding) ----

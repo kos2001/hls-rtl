@@ -11,7 +11,9 @@ import type {
   Schematic,
   SignoffReport,
   SkillReport,
+  DocFile,
   Telemetry,
+  Uarch,
   VerificationResults,
   WaveStatus,
   Waveform,
@@ -126,6 +128,12 @@ export const api = {
   },
 
   schematic: () => request<Schematic>('/schematic'),
+
+  /** A project document (MANUAL / UARCH / TESTPLAN / README) for in-app reading. */
+  doc: (name: string) => request<DocFile>(`/doc/${encodeURIComponent(name)}`),
+
+  /** docs/UARCH.md — the planner's real design input. */
+  uarch: () => request<Uarch>('/uarch'),
 
   kbStats: () => request<KbStats>('/kb/stats'),
 

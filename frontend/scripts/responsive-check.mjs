@@ -62,7 +62,8 @@ const SIZES = [
   [ 560,  333, 'laptop @300% zoom'],
   [ 420,  250, 'laptop @400% zoom'],
 ];
-const VIEWS = ['Scoreboard', 'Waveform', 'Schematic', 'Quality', 'Knowledge', 'Assistant'];
+const VIEWS = ['Overview', 'Scoreboard', 'Waveform', 'Schematic', 'Quality',
+               'Knowledge', 'Assistant', 'Manual'];
 
 const URL = process.env.WORKBENCH_URL || 'http://127.0.0.1:8012/';
 const browser = await chromium.launch();
