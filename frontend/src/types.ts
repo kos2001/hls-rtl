@@ -252,3 +252,20 @@ export interface KbSearch {
   count: number
   results: KbChunk[]
 }
+
+// ---------- uArch spec ----------
+export interface Uarch {
+  path: string
+  chars: number
+  /** Sections 1-8: the stable spec, shown read-only. */
+  spec: string
+  /** Section 9, where a proposal goes. */
+  changed_section: string
+}
+
+export interface DocFile {
+  name: string
+  path: string
+  chars: number
+  text: string
+}

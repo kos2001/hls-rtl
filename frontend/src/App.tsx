@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { Console } from './Console'
+import { HelpPane } from './Help'
 import { KnowledgePane } from './Knowledge'
 import { Navigator } from './Navigator'
+import { Overview } from './Overview'
 import type { NavSelection } from './Navigator'
 import { Properties } from './Properties'
 import { SchematicPane } from './Schematic'
@@ -13,7 +15,7 @@ import { log, traced } from './log'
 import { Sparkline } from './ui'
 import type {
   EquivResult, Health, PatternResult, Progressive, QoRReport, Reflection,
-  SchematicNode, SignoffReport, SkillReport, Telemetry, VerificationResults,
+  KbStats, SchematicNode, SignoffReport, SkillReport, Telemetry, VerificationResults,
 } from './types'
 
 /**
@@ -26,10 +28,11 @@ import type {
  * greppable record of the session — the way an engineer actually debugs a run.
  */
 
-type View = 'scoreboard' | 'waveform' | 'schematic' | 'quality' | 'signoff' | 'flows'
-  | 'knowledge' | 'assistant'
+type View = 'overview' | 'scoreboard' | 'waveform' | 'schematic' | 'quality' | 'signoff'
+  | 'flows' | 'knowledge' | 'assistant' | 'help'
 
 const VIEWS: { id: View; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
   { id: 'scoreboard', label: 'Scoreboard' },
   { id: 'waveform', label: 'Waveform' },
   { id: 'schematic', label: 'Schematic' },
@@ -38,6 +41,7 @@ const VIEWS: { id: View; label: string }[] = [
   { id: 'flows', label: 'Flows' },
   { id: 'knowledge', label: 'Knowledge' },
   { id: 'assistant', label: 'Assistant' },
+  { id: 'help', label: 'Manual' },
 ]
 
 // ---------------- shared bits ----------------
@@ -414,12 +418,12 @@ function Flows() {
 
 // ---------------- app ----------------
 export default function App() {
-  const [view, setView] = useState<View>('scoreboard')
+  const [view, setView] = useState<View>('overview')
   const [health, setHealth] = useState<Health | null>(null)
   const [data, setData] = useState<VerificationResults | null>(null)
   const [qor, setQor] = useState<QoRReport | null>(null)
   const [skills, setSkills] = useState<SkillReport | null>(null)
-  const [kb, setKb] = useState<{ chunks: number } | null>(null)
+  const [kb, setKb] = useState<KbStats | null>(null)
   const [telemetry, setTelemetry] = useState<Telemetry | null>(null)
   const [signoff, setSignoff] = useState<SignoffReport | null>(null)
   const [sel, setSel] = useState<NavSelection | null>(null)
@@ -526,6 +530,7 @@ export default function App() {
           <span className="brand-mark">RTL</span>
           <span className="brand-name">Verification Workbench</span>
           <span className="brand-design">gamma</span>
+          <span className="brand-thesis">golden model as executable oracle · 3-way bit-exact</span>
         </div>
         <Menu label="File">
           <MenuItem onClick={loadAll} accel="⌘R">Reload all</MenuItem>
@@ -558,6 +563,8 @@ export default function App() {
           <MenuItem onClick={() => setView('knowledge')}>Knowledge retrieval…</MenuItem>
         </Menu>
         <Menu label="Help">
+          <MenuItem onClick={() => setView('help')} accel="?">User manual</MenuItem>
+          <MenuItem onClick={() => setView('overview')}>What is this?</MenuItem>
           <MenuItem onClick={() => {
             log.info('ABOUT', 'gamma verification workbench — golden(Python) / SystemC / RTL 3-way bit-exact scoreboard')
             log.note('ABOUT', 'open-source flow: verilator, icarus, cocotb, yosys, sby')
@@ -625,6 +632,10 @@ export default function App() {
           </div>
 
           <div className="view-body">
+            {view === 'overview' && (
+              <Overview data={data} qor={qor} skills={skills} kb={kb}
+                        onGo={(v) => setView(v as View)} />
+            )}
             {view === 'scoreboard' && (data
               ? <Scoreboard data={data} onPick={(p) => setSel({ kind: 'pattern', id: p.name, data: p })} />
               : <div className="pane-empty muted">Loading verification results…</div>)}
@@ -648,6 +659,7 @@ export default function App() {
             )}
             {view === 'flows' && <Flows />}
             {view === 'knowledge' && <KnowledgePane />}
+            {view === 'help' && <HelpPane />}
             {view === 'assistant' && (
               <div className="view-scroll">
                 <PlanTab gatewayReady={gatewayReady} />

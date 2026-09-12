@@ -28,7 +28,7 @@ export function Console({ open, onToggle }: { open: boolean; onToggle: () => voi
   const [threshold, setThreshold] = useState<Severity>('INFO')
   const [q, setQ] = useState('')
   const [follow, setFollow] = useState(true)
-  const endRef = useRef<HTMLDivElement>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { FATAL: 0, ERROR: 0, WARN: 0, NOTE: 0, INFO: 0 }
@@ -45,7 +45,13 @@ export function Console({ open, onToggle }: { open: boolean; onToggle: () => voi
   }, [lines, threshold, q])
 
   useEffect(() => {
-    if (open && follow) endRef.current?.scrollIntoView({ block: 'nearest' })
+    // Set scrollTop directly rather than scrollIntoView: the latter scrolls
+    // every scrollable ancestor, so following the transcript was silently
+    // scrolling the work area too — the Overview's opening claim was pushed off
+    // the top of the pane on load.
+    if (open && follow && bodyRef.current) {
+      bodyRef.current.scrollTop = bodyRef.current.scrollHeight
+    }
   }, [shown, open, follow])
 
   function copyAll() {
@@ -90,7 +96,7 @@ export function Console({ open, onToggle }: { open: boolean; onToggle: () => voi
       </header>
 
       {open && (
-        <div className="console-body">
+        <div className="console-body" ref={bodyRef}>
           {shown.length === 0 && (
             <div className="console-line console-empty">
               <span className="muted small">
@@ -108,7 +114,6 @@ export function Console({ open, onToggle }: { open: boolean; onToggle: () => voi
               {l.detail && <pre className="cl-detail">{l.detail}</pre>}
             </div>
           ))}
-          <div ref={endRef} />
         </div>
       )}
     </section>

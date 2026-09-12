@@ -38,6 +38,9 @@ _ROOT = Path(__file__).resolve().parents[1]
 # Files worth indexing, with the kind that drives chunking. Ordered by how
 # authoritative they are when two chunks say different things.
 SOURCES: Tuple[Tuple[str, str], ...] = (
+    # The uArch spec first: it is the design INPUT the rest implements, so when
+    # it and a source file disagree the disagreement is itself the finding.
+    ("docs/UARCH.md", "markdown"),
     ("golden/gamma_golden.py", "python"),
     ("rtl/gamma.v", "verilog"),
     ("systemc/gamma_sc.h", "cpp"),
@@ -46,6 +49,7 @@ SOURCES: Tuple[Tuple[str, str], ...] = (
     ("tb/test_gamma.py", "python"),
     ("tb/stimulus.py", "python"),
     ("TESTPLAN.md", "markdown"),
+    ("docs/MANUAL.md", "markdown"),
     ("CLAUDE.md", "markdown"),
     ("README.md", "markdown"),
 )
