@@ -187,14 +187,23 @@ converges on plausibility, so here the **oracle decides, not the model**.
   honest answer to "what should improve next" when everything already passes:
   the next step is rarely more RTL, it is closing a gap in evidence.
 - **Prove committed RTL** — runs the gate against `rtl/gamma.v`: lint → design →
-  synthesize → the real cocotb regression → **4-state** → **formal**. No LLM
-  anywhere in it. The 4-state stage re-runs the same tests under Icarus, which
+  synthesize → the real cocotb regression → **configs** → **4-state** →
+  **formal**. No LLM anywhere in it. The `configs` stage re-runs the bit-exact
+  comparison with `LUT_SYNC_READ=1`: that `generate` branch is not elaborated by
+  default, so without it the whole registered-LUT-read path has no coverage —
+  which is how mutation testing found it. The 4-state stage re-runs the same tests under Icarus, which
   can represent X: deleting `count <= 0` from the reset branch passes 5/5 under
   Verilator and fails 0/5 under Icarus.
   The formal stage exists because simulation has a measured blind spot: an
   effective FIFO depth of 7 instead of 8 passes 13/13 patterns with 0.0%
   throughput change, and `a_no_false_stall` rejects it in under a second.
   A formal `skip` (no `sby`) does not block a verdict; a formal `fail` does.
+- **Mutation coverage** — injects one plausible fault at a time and runs the
+  real gate on each. A pass rate says the design agrees with the golden model on
+  the inputs someone wrote down; this says whether the suite would *notice* if
+  the design were wrong. ~10s per mutant. A **survivor is a concrete edit to
+  `rtl/gamma.v` that every check in this repository accepts** — that is the
+  finding, not the percentage.
 - **Run loop** — generates a candidate for your goal, gates it, and on rejection
   feeds the *exact* mismatch (pattern, pixel index, RTL value vs golden value)
   into the next attempt.

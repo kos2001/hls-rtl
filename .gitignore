@@ -21,9 +21,10 @@ tb/dump.vcd
 build/improve/
 rtl/gamma.v.bak-*
 
-# SymbiYosys task working directories
-formal/gamma_bmc/
-formal/gamma_cover/
-formal/gamma_deep/
-formal/gamma_prove/
+# SymbiYosys task working directories (one per [tasks] entry; glob so a new
+# task does not have to be added here too)
+formal/gamma_*/
 formal/gamma/
+
+# cocotb build dirs created by the sign-off gate (never the developer's)
+tb/sim_build_*/

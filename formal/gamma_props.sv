@@ -31,9 +31,15 @@
 `default_nettype none
 
 module gamma_props #(
-    parameter integer PIXEL_W    = 2,
-    parameter integer LUT_DEPTH  = 4,
-    parameter integer FIFO_DEPTH = 4
+    parameter integer PIXEL_W       = 2,
+    parameter integer LUT_DEPTH     = 4,
+    parameter integer FIFO_DEPTH    = 4,
+    // The DUT supports a registered-LUT-read mode whose `generate` branch the
+    // default elaboration never builds. Mutation testing found an occupancy
+    // off-by-one surviving in there: the `configs` simulation stage compares
+    // values, and depth is timing-only, so only an invariant can see it — and
+    // the invariants were not running in that configuration either.
+    parameter integer LUT_SYNC_READ = 0
 ) (
     input wire clk,
     input wire rst_n,
@@ -51,7 +57,8 @@ module gamma_props #(
     wire [PIXEL_W-1:0]  out_r, out_g, out_b;
 
     gamma #(
-        .PIXEL_W(PIXEL_W), .LUT_DEPTH(LUT_DEPTH), .FIFO_DEPTH(FIFO_DEPTH)
+        .PIXEL_W(PIXEL_W), .LUT_DEPTH(LUT_DEPTH), .FIFO_DEPTH(FIFO_DEPTH),
+        .LUT_SYNC_READ(LUT_SYNC_READ)
     ) dut (
         .clk(clk), .rst_n(rst_n),
         .in_valid(in_valid), .in_ready(in_ready),
@@ -79,6 +86,10 @@ module gamma_props #(
     // wire — a free variable that makes properties pass while proving nothing.
     wire [CNT_W-1:0] dut_count;
     wire [PTR_W-1:0] dut_rd_ptr, dut_wr_ptr;
+    // Accepted but not yet written into the FIFO. Zero in the default mode;
+    // in registered-read mode it is the in-flight stage-1 entry. Bound by
+    // `connect` per task, to a constant or to the real signal.
+    wire             dut_pending;
 
     // Reference occupancy: how many pixels the DUT has accepted but not yet
     // handed over. Driven purely by the handshakes, with the DUT's own reset
@@ -152,10 +163,15 @@ module gamma_props #(
             // A3. A full buffer must refuse.
             a_full_refuses: assert (!(outstanding == FIFO_DEPTH[CNT_W-1:0]) || !in_ready);
 
-            // A4. Output validity is exactly "something is outstanding" —
-            //     nothing appears that was not accepted, nothing accepted
-            //     disappears without being handed over.
-            a_valid_iff_outstanding: assert (out_valid == (outstanding != {CNT_W{1'b0}}));
+            // A4. Output validity is exactly "something is ready to hand over".
+            //     Outstanding minus whatever is still in flight: in the default
+            //     mode nothing is, and the two agree; in registered-read mode a
+            //     pixel spends one cycle in stage 1 before it is presentable,
+            //     and counting it would make this assert a latency claim rather
+            //     than a validity one.
+            a_valid_iff_outstanding: assert (
+                out_valid == ((outstanding - {{(CNT_W-1){1'b0}}, dut_pending})
+                              != {CNT_W{1'b0}}));
 
             // A6. No retraction: a presented pixel stays presented, unchanged,
             //     until the sink takes it. A stalling sink must not lose data.
@@ -182,7 +198,18 @@ module gamma_props #(
         //     It is not a restatement of the behavioural properties: those say
         //     what the ports must do, this says the model is watching the right
         //     register.
-        a_model_tracks_dut: assert (outstanding == dut_count);
+        a_model_tracks_dut: assert (
+            outstanding == dut_count + {{(CNT_W-1){1'b0}}, dut_pending});
+
+        // A11. The DUT's own counter is bounded.
+        //
+        //      Not implied by A1 + A9, which is the trap: A9 is modular
+        //      arithmetic in CNT_W bits, so a garbage state with dut_count = 7
+        //      and dut_pending = 1 satisfies it by wrapping to 0 and matching an
+        //      `outstanding` of 0. Induction started exactly there and then
+        //      violated A1 one step later. Bounding the counter itself is what
+        //      rules the state out.
+        a_dut_count_bounded: assert (dut_count <= FIFO_DEPTH[CNT_W-1:0]);
 
         // A10. The pointers agree with the occupancy.
         //

@@ -14,6 +14,7 @@ import type {
   Audit,
   DocFile,
   LoopResult,
+  MutationRun,
   Proof,
   Telemetry,
   Uarch,
@@ -147,6 +148,13 @@ export const api = {
     request<Proof>('/improve/prove', {
       method: 'POST',
       body: JSON.stringify({ code: code ?? null, bp_profile: bpProfile }),
+    }),
+
+  /** Inject single faults and run the real gate on each (~10s per mutant). */
+  mutate: (limit: number) =>
+    request<MutationRun>('/improve/mutate', {
+      method: 'POST',
+      body: JSON.stringify({ limit }),
     }),
 
   improveLoop: (goal: string, maxIters: number) =>

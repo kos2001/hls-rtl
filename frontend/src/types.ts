@@ -343,3 +343,29 @@ export interface LoopResult {
   does_not_prove: string
   note: string
 }
+
+// ---------- Mutation coverage ----------
+export interface MutantResult {
+  id: string
+  operator: string
+  description: string
+  line: number
+  before: string
+  after: string
+  caught: boolean
+  caught_by: string | null
+  detail: string
+  elapsed_s: number
+}
+
+export interface MutationRun {
+  total_available: number
+  run: number
+  caught: number
+  survived: number
+  score: number
+  caught_by_stage: Record<string, number>
+  operators: string[]
+  results: MutantResult[]
+  note: string
+}

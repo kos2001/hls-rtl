@@ -161,6 +161,15 @@ const KO: Record<string, string> = {
   'what to improve next — deterministic, no gateway':
     '다음에 개선할 것 — 결정적, 게이트웨이 불필요',
   'Baseline gate': '기준선 게이트',
+  'Mutation coverage': '변이 커버리지',
+  mutants: '변이 수',
+  'Run campaign': '캠페인 실행',
+  fault: '결함',
+  line: '행',
+  'caught by': '검출 단계',
+  'Injecting faults and running the gate': '결함 주입 후 게이트 실행 중',
+  'Injects one plausible fault at a time and runs the real gate on each. A pass rate says the design agrees with the golden model on the inputs someone wrote down; this says whether the suite would notice if the design were wrong. ~10s per mutant.':
+    '그럴듯한 결함을 하나씩 주입하고 각각에 실제 게이트를 돌립니다. 통과율은 누군가 적어 둔 입력에 대해 설계가 골든 모델과 일치한다는 뜻일 뿐이고, 이것은 설계가 틀렸을 때 검사 묶음이 알아차리는지를 말합니다. 변이당 약 10초.',
   'Improvement loop': '개선 루프',
   'Prove committed RTL': '커밋된 RTL 증명',
   'Proving…': '증명 중…',
