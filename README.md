@@ -116,6 +116,7 @@ pip install -r api/requirements.txt
 python -m pytest tests/ -q               # L0: no simulator needed
 cd tb && make                            # L1+L2: directed + 3-way (verilator)
 cd tb && make SIM=icarus                 # 4-state cross-check (X/Z, reset)
+sby -f formal/gamma.sby bmc              # bounded proof of the handshake invariants
 
 # the workbench
 uvicorn api.server:app --host 127.0.0.1 --port 8012

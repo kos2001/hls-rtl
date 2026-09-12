@@ -48,7 +48,7 @@ cd frontend && npm install && npm run dev
 | **Verilator ≥ 5.0** | 시뮬레이션, lint | 스코어보드가 번들 스냅샷으로 대체됨 |
 | **yosys** | QoR, schematic, LEC | 해당 뷰가 *unavailable* 표시 (실패가 아님) |
 | **SymbiYosys** (`sby`) + 솔버 | 게이트의 formal 단계 | 그 단계가 **skip** — 통과가 아니라 증거 없음 |
-| Icarus Verilog | 4-state 교차 확인 | X/Z·리셋 초기화를 확인할 수 없음 |
+| **Icarus Verilog** | 게이트의 4-state 단계 | 그 단계가 **skip** — X·리셋 초기화 버그를 탐지할 수 없게 됨 |
 | SystemC 2.3.x | SystemC 단 | 해당 열이 **skipped** |
 | Hermes Gateway | Assistant, Planner | 해당 기능만 503, 나머지는 정상 |
 
@@ -180,7 +180,10 @@ cocotb 3-way 회귀이며 몇 초 걸립니다.
 - **증거 공백** — 순위화, 결정적, 게이트웨이 불필요. 이미 전부 통과 중일 때 "다음에
   뭘 개선할까"의 정직한 답입니다. 다음 단계는 대개 RTL이 아니라 증거입니다.
 - **Prove committed RTL** — `rtl/gamma.v`에 대해 게이트를 실행합니다: lint → design
-  → synthesize → 실제 cocotb 회귀 → **formal**. LLM은 어디에도 없습니다.
+  → synthesize → 실제 cocotb 회귀 → **4-state** → **formal**. LLM은 어디에도
+  없습니다. 4-state 단계는 X를 표현할 수 있는 Icarus로 같은 테스트를 다시
+  돌립니다. 리셋에서 `count <= 0`을 지우면 Verilator에서는 5/5 통과하고
+  Icarus에서는 0/5로 실패합니다.
   formal 단계가 있는 이유는 시뮬레이션에 **측정된 맹점**이 있기 때문입니다. FIFO
   깊이가 8 대신 7이 되는 변경은 13/13 패턴을 통과하고 처리율 차이도 0.0%인데,
   `a_no_false_stall`이 1초 안에 거부합니다.

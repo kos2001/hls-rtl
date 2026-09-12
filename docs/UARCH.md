@@ -161,9 +161,10 @@ mode) `s1_valid`.
 `out_valid` is 0 while `count` is 0, so uninitialised storage is never presented
 as valid data. `test_reset_state` gates this.
 
-> **Known gap.** The regression runs under Verilator, which is 2-state. It
-> therefore cannot prove that the unreset memories are never *read* as X. Run
-> `make -C tb SIM=icarus` for a 4-state check before claiming that property.
+> **How this is checked.** Verilator is 2-state and cannot represent X, so it
+> cannot see an unreset register at all — deleting `count <= 0` from the reset
+> branch gives 5/5 PASS under Verilator and 0/5 under Icarus. `make -C tb
+> SIM=icarus` is the 4-state cross-check, and the sign-off gate runs it.
 
 ---
 
