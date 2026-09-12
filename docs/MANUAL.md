@@ -50,7 +50,7 @@ cd frontend && npm install && npm run dev
 | Python 3.10+, `cocotb<2.0` | the regression | nothing works |
 | **Verilator ≥ 5.0** | simulation, lint | Scoreboard falls back to the bundled snapshot |
 | **yosys** | QoR, schematic, LEC | those views report *unavailable*, not a failure |
-| Icarus Verilog | 4-state cross-check | you cannot check X/Z or reset-init |
+| **Icarus Verilog** | 4-state stage of the gate | that stage reports **skip** — X and reset-init bugs become undetectable |
 | SystemC 2.3.x | the SystemC rung | that column shows **skipped** |
 | Hermes Gateway | Assistant, Planner | those return 503; everything else works |
 
@@ -187,7 +187,10 @@ converges on plausibility, so here the **oracle decides, not the model**.
   honest answer to "what should improve next" when everything already passes:
   the next step is rarely more RTL, it is closing a gap in evidence.
 - **Prove committed RTL** — runs the gate against `rtl/gamma.v`: lint → design →
-  synthesize → the real cocotb regression → **formal**. No LLM anywhere in it.
+  synthesize → the real cocotb regression → **4-state** → **formal**. No LLM
+  anywhere in it. The 4-state stage re-runs the same tests under Icarus, which
+  can represent X: deleting `count <= 0` from the reset branch passes 5/5 under
+  Verilator and fails 0/5 under Icarus.
   The formal stage exists because simulation has a measured blind spot: an
   effective FIFO depth of 7 instead of 8 passes 13/13 patterns with 0.0%
   throughput change, and `a_no_false_stall` rejects it in under a second.

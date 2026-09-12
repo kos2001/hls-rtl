@@ -108,27 +108,33 @@ class Proof:
         return (bool(self.patterns)
                 and all(p.ok for p in self.patterns)
                 and self.stages.get("simulate") == "pass"
+                and self.stages.get("4state") != "fail"
                 and self.stages.get("formal") != "fail")
 
     #: What a PROVEN verdict does and does not license you to say. Carried on
     #: the object so the UI, the agent and the loop all repeat the same claim.
     PROVES = ("output values and their ordering are bit-exact against the Python "
-              "golden model for the patterns and backpressure profiles that ran, "
-              "AND — when the formal stage ran — that the handshake invariants "
-              "hold on every trace up to the bounded depth: no overflow, no "
-              "false backpressure, no retraction, output valid exactly when a "
-              "pixel is outstanding")
+              "golden model for the patterns and backpressure profiles that ran; "
+              "— when the 4-state stage ran — that the same tests hold under a "
+              "simulator that can represent X, so no uninitialised read or "
+              "unreset register leaks into a sampled output; and — when the "
+              "formal stage ran — that the handshake invariants hold on every "
+              "trace up to the bounded depth: no overflow, no false "
+              "backpressure, no retraction, output valid exactly when a pixel "
+              "is outstanding")
     DOES_NOT_PROVE = (
         "behaviour beyond the formal bound (the induction case does not close, "
-        "so this is a bounded proof, not an unbounded one), X-propagation or "
-        "reset-initialization (Verilator is 2-state), datapath values for inputs "
-        "outside the test set, or anything about Fmax, area or power")
+        "so this is a bounded proof, not an unbounded one), datapath values for "
+        "inputs outside the test set, whether the test set would CATCH a bug at "
+        "all (pass rate is not sensitivity), or anything about Fmax, area or "
+        "power")
 
     @property
     def verdict(self) -> str:
         if self.equivalent:
             return "PROVEN"
-        if self.stages.get("simulate") == "fail" or self.stages.get("formal") == "fail":
+        if any(self.stages.get(k) == "fail"
+               for k in ("simulate", "4state", "formal")):
             return "REJECTED"
         return "INCONCLUSIVE"
 
@@ -170,16 +176,42 @@ class Proof:
 
 
 
-def _run_regression(candidate: Path, timeout: int, bp_profile: str) -> Tuple[str, int]:
+def _run_regression(candidate: Path, timeout: int, bp_profile: str,
+                    sim: str = "verilator") -> Tuple[str, int]:
     env = sim_env(BP_PROFILE=bp_profile)
     try:
         proc = subprocess.run(
-            ["make", "-s", f"VERILOG_SOURCES={candidate}"],
+            ["make", "-s", f"SIM={sim}", f"VERILOG_SOURCES={candidate}"],
             cwd=str(_TB), env=env, capture_output=True, text=True, timeout=timeout,
         )
     except subprocess.TimeoutExpired:
         return (f"TIMEOUT after {timeout}s", 124)
     return (proc.stdout + proc.stderr, proc.returncode)
+
+
+def _run_4state(candidate: Path, timeout: int) -> Tuple[str, str]:
+    """The same testbench under Icarus, which is 4-state.
+
+    Verilator models every signal as 0/1, so a register that reset fails to
+    clear simply starts at 0 and the bug is invisible. Demonstrated, not
+    assumed: deleting `count <= 0` from the reset branch gives 5/5 PASS under
+    Verilator and 0/5 under Icarus.
+
+    One backpressure profile is enough here. An X does not depend on stall
+    timing — it appears as soon as an uninitialised value is read — so paying
+    for the full cross-product a second time buys nothing.
+    """
+    if shutil.which("iverilog") is None:
+        return ("skip", "iverilog not available")
+    log, rc = _run_regression(candidate, timeout, "single", sim="icarus")
+    m = _SUMMARY_RE.search(log)
+    if not m:
+        tail = log.strip().splitlines()[-1:] or [""]
+        return ("fail", f"could not parse icarus results — {tail[0][:120]}")
+    total, passed, failed = (int(m.group(i)) for i in (1, 2, 3))
+    ok = failed == 0 and rc == 0
+    return ("pass" if ok else "fail",
+            f"icarus: {passed}/{total} tests pass (4-state)")
 
 
 def _parse_patterns(log: str) -> List[PatternOutcome]:
@@ -256,7 +288,8 @@ def _run_formal(candidate: Path, timeout: int) -> Tuple[str, str]:
 
 def prove(candidate_verilog: Optional[str] = None, *, name: str = "",
           timeout: int = 600, bp_profile: str = "single",
-          run_regression: bool = True, run_formal: bool = True) -> Proof:
+          run_regression: bool = True, run_formal: bool = True,
+          run_4state: bool = True) -> Proof:
     """Gate a candidate: static checks, then the real scoreboard against it.
 
     `candidate_verilog=None` proves the project RTL itself — the baseline, and a
@@ -327,7 +360,18 @@ def prove(candidate_verilog: Optional[str] = None, *, name: str = "",
             proof.stages["simulate"] = "fail"
             proof.details["simulate"] = "could not parse cocotb results"
 
-    # 5. formal. Independent of the scoreboard on purpose: it is here precisely
+    # 5. 4-state. The same tests, under a simulator that can represent X.
+    if run_4state and not blocked and proof.stages.get("simulate") == "pass":
+        st, detail = _run_4state(path, timeout=timeout)
+        proof.stages["4state"] = st
+        proof.details["4state"] = detail
+    elif run_4state:
+        proof.stages["4state"] = "skip"
+        proof.details["4state"] = ("not run — the 2-state regression must pass first"
+                                   if not blocked else
+                                   "not run — an earlier gating stage failed")
+
+    # 6. formal. Independent of the scoreboard on purpose: it is here precisely
     #    to cover what simulation provably cannot see.
     if run_formal and not blocked:
         st, detail = _run_formal(path, timeout=timeout)
@@ -371,8 +415,11 @@ def apply_candidate(candidate_path: str, *, backup: bool = True) -> dict:
 # ------------------------------------------------------------- the auditor ---
 _GAP_CHECKS = (
     ("4-state simulation", "high",
-     "The regression runs under Verilator, which is 2-state. X-propagation and "
-     "reset-initialization bugs cannot be detected by any current evidence.",
+     "The main regression runs under Verilator, which is 2-state: it cannot "
+     "represent X, so an unreset register simply starts at 0. Deleting "
+     "`count <= 0` from the reset branch gives 5/5 PASS under Verilator and 0/5 "
+     "under Icarus — measured, not argued. The gate runs Icarus when it is "
+     "installed; without it this evidence is missing.",
      "make -C tb SIM=icarus"),
     ("unbounded formal proof", "medium",
      "formal/ covers the handshake invariants, but only to a BOUNDED depth: "
@@ -415,7 +462,7 @@ def audit() -> dict:
     have_verible = shutil.which("verible-verilog-lint") is not None
     have_mcy = shutil.which("mcy") is not None
 
-    satisfied = {"systemc rung": have_sc}
+    satisfied = {"systemc rung": have_sc, "4-state simulation": have_icarus}
     tooling = {
         "4-state simulation": have_icarus,
         "unbounded formal proof": have_sby and have_formal,
