@@ -39,7 +39,14 @@ module gamma_props #(
     // off-by-one surviving in there: the `configs` simulation stage compares
     // values, and depth is timing-only, so only an invariant can see it — and
     // the invariants were not running in that configuration either.
-    parameter integer LUT_SYNC_READ = 0
+    parameter integer LUT_SYNC_READ = 0,
+    // Datapath properties are opt-in (the `datapath` task). They need a shadow
+    // of the LUTs and of the FIFO contents, and those are proven BOUNDED: an
+    // arbitrary induction start state has unrelated garbage in the shadow and
+    // in fifo_mem, and relating two memories element-wise is not something
+    // `connect` can express. Keeping them out of `prove` keeps that task's
+    // unbounded result honest rather than mixing the two claims.
+    parameter integer DATAPATH_PROPS = 0
 ) (
     input wire clk,
     input wire rst_n,
@@ -232,6 +239,96 @@ module gamma_props #(
         if (!rst_n)
             a_reset_empties: assert (!out_valid);
     end
+
+    // ---- datapath: values, not just control ----
+    //
+    // The control properties say pixels are not lost, duplicated, reordered or
+    // presented early. They say nothing about WHAT comes out. That correctness
+    // has lived entirely in the golden-model scoreboard, and therefore only for
+    // the inputs somebody put in the test set.
+    //
+    // The reference here is written from the SPEC, not read from the DUT: a
+    // shadow of the three LUTs maintained from the write port, with the
+    // reserved channel encoding writing nothing. If the RTL's decoder aliased
+    // `2'b11` onto a real channel, or crossed two channels on read, the shadow
+    // would not, and the assertion below separates them.
+    generate
+    if (DATAPATH_PROPS != 0) begin : g_datapath
+        reg [PIXEL_W-1:0] s_lut_r [0:LUT_DEPTH-1];
+        reg [PIXEL_W-1:0] s_lut_g [0:LUT_DEPTH-1];
+        reg [PIXEL_W-1:0] s_lut_b [0:LUT_DEPTH-1];
+
+        always @(posedge clk)
+            if (lut_we)
+                case (lut_ch)
+                    2'b00:   s_lut_r[lut_addr] <= lut_wdata;
+                    2'b01:   s_lut_g[lut_addr] <= lut_wdata;
+                    2'b10:   s_lut_b[lut_addr] <= lut_wdata;
+                    default: ;   // reserved encoding writes nothing
+                endcase
+
+        // Shadow queue of what each accepted pixel is owed, pushed and popped
+        // by the same handshakes as the DUT's.
+        reg [3*PIXEL_W-1:0] s_fifo [0:FIFO_DEPTH-1];
+        reg [PTR_W-1:0]     s_rd, s_wr;
+
+        always @(posedge clk or negedge rst_n)
+            if (!rst_n) begin
+                s_rd <= {PTR_W{1'b0}};
+                s_wr <= {PTR_W{1'b0}};
+            end else begin
+                if (push) begin
+                    s_fifo[s_wr] <= {s_lut_r[in_r], s_lut_g[in_g], s_lut_b[in_b]};
+                    s_wr <= s_wr + {{(PTR_W-1){1'b0}}, 1'b1};
+                end
+                if (pop)
+                    s_rd <= s_rd + {{(PTR_W-1){1'b0}}, 1'b1};
+            end
+
+        // Both models start with unknown LUT contents, and they only agree on
+        // an address once BOTH have been written there. Rather than equate the
+        // arrays — which would mean naming `dut.lut_r_mem`, and the Verilog
+        // frontend answers that by inventing a free variable — assume no pixel
+        // is offered until every entry has been written at least once. That is
+        // what the testbench does anyway (`load_lut` before any traffic), and it
+        // makes every address the DUT reads one the shadow has too.
+        reg [LUT_DEPTH-1:0] w_r, w_g, w_b;
+        always @(posedge clk or negedge rst_n)
+            if (!rst_n) begin
+                w_r <= {LUT_DEPTH{1'b0}};
+                w_g <= {LUT_DEPTH{1'b0}};
+                w_b <= {LUT_DEPTH{1'b0}};
+            end else if (lut_we) begin
+                case (lut_ch)
+                    2'b00:   w_r[lut_addr] <= 1'b1;
+                    2'b01:   w_g[lut_addr] <= 1'b1;
+                    2'b10:   w_b[lut_addr] <= 1'b1;
+                    default: ;
+                endcase
+            end
+        wire luts_ready = (&w_r) && (&w_g) && (&w_b);
+        always @(posedge clk) if (!luts_ready) assume (!in_valid);
+
+        // D1. What is presented is the per-channel LUT of the pixel that was
+        //     accepted into that slot. Ordering comes free: the shadow is a
+        //     queue driven by the same handshakes.
+        always @(posedge clk) if (booted && rst_n && out_valid)
+            a_datapath_value: assert ({out_r, out_g, out_b} == s_fifo[s_rd]);
+
+        // D2. The two queues stay aligned. Stated separately so a failure says
+        //     whether the VALUE is wrong or the position is.
+        always @(posedge clk) if (booted && rst_n)
+            a_datapath_aligned: assert (s_rd == dut_rd_ptr && s_wr == dut_wr_ptr);
+
+        // Reachability: the assumption above is a real restriction, so show a
+        // pixel actually makes it through under it. Without this the datapath
+        // assertions could pass over a trace where nothing ever flows.
+        always @(posedge clk) if (booted) begin
+            c_datapath_flows: cover (rst_n && luts_ready && pop);
+            c_datapath_full:  cover (rst_n && luts_ready && outstanding == FIFO_DEPTH[CNT_W-1:0]);
+        end
+    end
+    endgenerate
 
     // ---- cover: these states must be reachable, or a passing proof is vacuous ----
     always @(posedge clk) if (booted) begin

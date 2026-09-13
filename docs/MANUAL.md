@@ -226,6 +226,13 @@ model must change first**. The RTL is never the place to redefine correctness.
 Nothing is written to `rtl/`. A proven candidate lands in `build/improve/` and
 **Apply** promotes it — re-proving it first, and backing up the current RTL.
 
+### Style and coverage
+Not views — endpoints, because they are measurements you run rather than screens
+you watch. `GET /style` reports house-style findings (folded into the `design`
+gate stage) and `GET /coverage` reports line coverage. In both, the number to
+act on is the one that names a line: a style finding cites the convention it
+enforces, and coverage's `never-executed` is the signal, not the percentage.
+
 ### Knowledge
 What the agent is given as grounding, with the retrieval scores. Type a question
 and press **Retrieve**.
@@ -307,8 +314,17 @@ cd tb && make SIM=icarus                # 4-state cross-check
 cd tb && make WAVES=1                   # with VCD
 cd tb && make TESTCASE=test_lut_reload  # one test
 BP_PROFILE=full make -C tb              # every pattern x profile (nightly)
+scripts/build_systemc.sh                # the third model
+
+sby -f formal/gamma.sby prove           # control path, unbounded (k-induction)
+sby -f formal/gamma.sby prove_sync      # the same, with LUT_SYNC_READ=1
+sby -f formal/gamma.sby datapath        # values, bounded
+sby -f formal/gamma.sby cover           # reachability (the proof is not vacuous)
+sby -f formal/gamma.sby bmc             # bounded, for a counterexample trace
 
 curl localhost:8012/api/verification     # scoreboard
+curl localhost:8012/api/style            # house style
+curl localhost:8012/api/coverage         # line coverage
 curl localhost:8012/api/skills           # what the agent can load
 curl "localhost:8012/api/kb/search?q=in_ready"   # what it would be told
 python scripts/sync_hermes_skills.py --list      # skill install state
