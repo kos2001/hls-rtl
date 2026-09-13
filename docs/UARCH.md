@@ -239,6 +239,7 @@ when it proposes a change:
 | Runtime LUT reload | `test_lut_reload` |
 | Bit-exactness of all three models | SHA-256 frame hash per pattern |
 | No overflow, no false backpressure, no retraction, reset empties | `formal/gamma_props.sv` — **unbounded**, in both LUT read modes (`prove`, `prove_sync`) |
+| A delivered pixel is the per-channel LUT of the pixel accepted into its slot | `formal/gamma.sby datapath` — **bounded**, against a reference model written from the spec |
 | The registered-read path behaves identically | `configs` gate stage + `prove_sync` |
 
 Pattern order in `tb/test_set.py` is a contract — `build/sc_out.txt` is consumed
@@ -278,11 +279,11 @@ evidence. Do not infer them:
   LUT→FIFO path as the likely Fmax limiter on FPGA, but that is a hypothesis,
   not a measurement.
 - **X-propagation and reset-release behaviour.** See §4.3.
-- **Formal proof of the datapath.** `formal/` proves the control path — occupancy,
-  handshake, stability, reset — on every reachable trace. It says nothing about
-  the LUT mapping itself; that a pixel leaves as `lut[pixel]` for its own channel
-  is established by the golden-model scoreboard, and therefore only for the
-  inputs in the test set.
+- **Unbounded proof of the datapath.** The control path is proven on every
+  reachable trace; the datapath is proven only to a bounded depth. Induction
+  cannot start from an arbitrary state there — the shadow LUTs and shadow queue
+  would have to be related to the DUT's memories element-wise, which `connect`
+  does not express for arrays. Longer traces rest on the scoreboard.
 
 ---
 

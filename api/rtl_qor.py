@@ -245,6 +245,20 @@ def analyze(code: Optional[str] = None) -> QoRReport:
 
     checks.append(Check("trailing_newline", "info", code.endswith("\n"),
                         "ends with newline"))
+
+    # House style (api/style.py). A dialect violation is a `warn` because it
+    # breaks the cocotb flow (TOPLEVEL_LANG=verilog), not because it looks
+    # different; everything else is a note.
+    from . import style as style_mod
+    sf = style_mod.check(code)
+    style_warns = [f for f in sf if f.severity == "warn"]
+    if style_warns:
+        checks.append(Check("style_dialect", "warn", False,
+                            "; ".join(f"L{f.line}: {f.message}" for f in style_warns[:2])))
+    checks.append(Check("style_clean", "info", not sf,
+                        "house style clean" if not sf
+                        else f"{len(sf)} style finding(s): "
+                             + "; ".join(f"L{f.line} {f.rule}" for f in sf[:3])))
     if lr.available:
         checks.append(Check("lint_clean", "error", lr.ok,
                             f"verilator: {len(lr.issues)} finding(s)"))
