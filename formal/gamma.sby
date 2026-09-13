@@ -32,6 +32,7 @@ bmc
 deep
 prove_sync
 cover_sync
+datapath
 
 [options]
 # *_sync repeat the proof with LUT_SYNC_READ=1. That generate branch is not
@@ -42,6 +43,21 @@ prove_sync: mode prove
 prove_sync: depth 16
 cover_sync: mode cover
 cover_sync: depth 20
+
+# `datapath` carries its own shadow LUTs and shadow queue, so it is BOUNDED on
+# purpose: an arbitrary induction start state has unrelated garbage in both the
+# shadow and fifo_mem, and relating two memories element-wise is not something
+# `connect` expresses. Mixing it into `prove` would blur a bounded claim into an
+# unbounded one.
+#
+# Sized for cost. The datapath assumption blocks input until every LUT entry is
+# written, which costs 3*LUT_DEPTH cycles up front, and the shadow doubles the
+# memory the solver carries. PIXEL_W=1/LUT_DEPTH=2/FIFO_DEPTH=2 keeps the state
+# small while leaving most of the window for pixels actually flowing — a 1-bit
+# pixel still tells the three channels apart, which is what the property is
+# about.
+datapath: mode bmc
+datapath: depth 14
 
 bmc:   mode bmc
 bmc:   depth 16
@@ -61,6 +77,10 @@ read -formal -sv gamma_props.sv
 read -formal gamma.v
 prove_sync: chparam -set LUT_SYNC_READ 1 gamma_props
 cover_sync: chparam -set LUT_SYNC_READ 1 gamma_props
+datapath:   chparam -set DATAPATH_PROPS 1 gamma_props
+datapath:   chparam -set PIXEL_W 1 gamma_props
+datapath:   chparam -set LUT_DEPTH 2 gamma_props
+datapath:   chparam -set FIFO_DEPTH 2 gamma_props
 hierarchy -top gamma_props
 proc
 flatten
@@ -76,6 +96,7 @@ prove:      connect -set \dut_pending 1'b0
 cover:      connect -set \dut_pending 1'b0
 bmc:        connect -set \dut_pending 1'b0
 deep:       connect -set \dut_pending 1'b0
+datapath:   connect -set \dut_pending 1'b0
 prove_sync: connect -set \dut_pending \dut.g_lut_sync.s1_valid
 cover_sync: connect -set \dut_pending \dut.g_lut_sync.s1_valid
 opt_clean
