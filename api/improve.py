@@ -125,12 +125,15 @@ class Proof:
               "formal stage ran — that the handshake invariants hold on EVERY "
               "reachable trace, unbounded (k-induction closes): no overflow, no "
               "false backpressure, no retraction, output valid exactly when a "
-              "pixel is outstanding, reset empties the core")
+              "pixel is outstanding, reset empties the core; and — bounded — "
+              "that each delivered pixel carries the per-channel LUT of the "
+              "pixel accepted into its slot, checked against a reference model "
+              "written from the spec rather than read from the DUT")
     DOES_NOT_PROVE = (
-        "datapath VALUES for inputs outside the test set (formal covers the "
-        "control path, not the LUT mapping), whether the test set would CATCH a "
-        "bug at all (pass rate is not sensitivity), or anything about Fmax, "
-        "area or power")
+        "datapath values beyond the formal bound (that part is BMC, not "
+        "induction — the shadow LUT and shadow queue cannot be related to the "
+        "DUT's memories element-wise, so longer traces rest on the scoreboard), "
+        "or anything about Fmax, area or power")
 
     @property
     def verdict(self) -> str:
@@ -298,7 +301,10 @@ def _run_formal(candidate: Path, timeout: int) -> Tuple[str, str]:
         # Both configurations. The registered-read branch is not elaborated by
         # default, so without the *_sync tasks it has no formal coverage — which
         # is where mutation testing found an occupancy off-by-one surviving.
-        for task in ("prove", "cover", "prove_sync", "cover_sync"):
+        # Control path unbounded in both LUT read modes, plus a BOUNDED
+        # datapath check — the one thing the control properties cannot say is
+        # WHAT comes out, and that had rested entirely on the test set.
+        for task in ("prove", "cover", "prove_sync", "cover_sync", "datapath"):
             try:
                 proc = subprocess.run(
                     ["sby", "-f", "gamma.sby", task], cwd=str(work),
@@ -592,14 +598,14 @@ _GAP_CHECKS = (
      "under Icarus — measured, not argued. The gate runs Icarus when it is "
      "installed; without it this evidence is missing.",
      "make -C tb SIM=icarus"),
-    ("formal datapath proof", "low",
-     "formal/ proves the CONTROL path unboundedly (k-induction closes), but "
-     "says nothing about the LUT mapping itself — that a pixel leaves as "
-     "lut[pixel] for its own channel. That correctness lives entirely in the "
-     "golden-model scoreboard, i.e. in the patterns that happen to be in the "
-     "test set.",
-     "add a formal property relating out_* to a shadow of the LUT writes, or "
-     "accept that the datapath is simulation-proven only"),
+    ("unbounded formal datapath", "low",
+     "The control path is proven unboundedly; the DATAPATH is proven only to a "
+     "bounded depth (`datapath` task). Induction cannot start from an arbitrary "
+     "state there — the shadow LUTs and shadow queue would have to be related "
+     "to the DUT's memories element-wise, which `connect` does not express for "
+     "arrays. Traces longer than the bound rest on the scoreboard.",
+     "relate the memories (a toolchain with array-level access), or accept the "
+     "bound: sby -f formal/gamma.sby datapath"),
     ("mutation coverage", "medium",
      "Measured by `api/mutate.py` rather than assumed: injecting single faults "
      "and running the real gate. The first campaign scored 83% and every "
@@ -623,11 +629,13 @@ _GAP_CHECKS = (
      "`never-executed` is the number that matters.",
      "GET /coverage"),
     ("style lint", "low",
-     "verilator --lint-only checks semantics, not house style, and no formatter "
-     "is enforced. Verible is the tool for it but is not packaged for this "
-     "platform (no brew formula), so closing this means installing a release "
-     "binary by hand — a deliberate choice, not an oversight.",
-     "install Verible from its GitHub releases, then verible-verilog-lint"),
+     "Covered by `api/style.py` (GET /style), folded into the `design` gate "
+     "stage. Repository conventions rather than a generic SystemVerilog guide: "
+     "a stock ruleset would ask for `logic` and `always_ff`, which this flow "
+     "refuses on purpose, and rules that fight the codebase get muted. Each of "
+     "the nine rules was verified against a violation of itself, and against a "
+     "comment mentioning `logic` to confirm it does not false-positive.",
+     "GET /style"),
 )
 
 
@@ -653,7 +661,8 @@ def audit() -> dict:
         "4-state simulation": have_icarus,
         "formal datapath proof": have_sby and have_formal,
         "mutation coverage": True,
-        "style lint": have_verible,
+        # api/style.py ships with the repo; Verible is not required.
+        "style lint": True,
         "code coverage": have_coverage,
     }
 

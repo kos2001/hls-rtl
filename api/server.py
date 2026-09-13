@@ -38,7 +38,7 @@ from . import oracle as oracle_mod  # noqa: E402
 from . import rtl_segments, reflection, equiv as equiv_mod, agents  # noqa: E402
 from . import skills as skills_mod, waveform as waveform_mod, schematic as schematic_mod  # noqa: E402
 from . import knowledge as kb, improve as improve_mod, mutate as mutate_mod  # noqa: E402
-from . import coverage as coverage_mod  # noqa: E402
+from . import coverage as coverage_mod, style as style_mod  # noqa: E402
 from . import graph_rag  # noqa: E402
 
 app = FastAPI(title="Gamma Verification API", version="0.1.0")
@@ -380,6 +380,21 @@ def improve_mutate(req: MutateIn) -> Dict[str, Any]:
     mutant, so `limit` is there to keep an interactive run interactive."""
     return mutate_mod.run(limit=req.limit, operators=req.operators,
                           bp_profile=req.bp_profile)
+
+
+@app.get("/style")
+def style_get() -> Dict[str, Any]:
+    """House-style findings for the project RTL (`api/style.py`).
+
+    Repository conventions, not a generic SystemVerilog guide: a stock ruleset
+    would spend its output asking for `logic` and `always_ff`, which this flow
+    refuses deliberately, and rules that fight the codebase get muted."""
+    return style_mod.report()
+
+
+@app.post("/style")
+def style_post(req: CodeIn) -> Dict[str, Any]:
+    return style_mod.report(req.code)
 
 
 @app.get("/coverage")

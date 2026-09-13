@@ -216,6 +216,13 @@ cocotb 3-way 회귀이며 몇 초 걸립니다.
 `rtl/`에는 아무것도 쓰지 않습니다. 증명된 후보는 `build/improve/`에 놓이고,
 **Apply**가 승격시킵니다 — 적용 전에 다시 증명하고, 현재 RTL을 백업합니다.
 
+### 스타일과 커버리지
+뷰가 아니라 엔드포인트입니다 — 지켜보는 화면이 아니라 실행하는 측정이기 때문입니다.
+`GET /style`은 하우스 스타일 위반(게이트의 `design` 단계에 포함)을, `GET /coverage`는
+라인 커버리지를 보고합니다. 둘 다 **행 번호를 짚는 항목**이 조치 대상입니다. 스타일
+위반은 자신이 강제하는 규약을 함께 인용하고, 커버리지는 퍼센트가 아니라
+`never-executed`가 신호입니다.
+
 ### Knowledge
 에이전트가 근거로 받는 내용을 검색 점수와 함께 보여줍니다. 질문을 입력하고
 **Retrieve**를 누르세요.
@@ -298,6 +305,7 @@ cd tb && make WAVES=1                   # VCD 포함
 cd tb && make TESTCASE=test_lut_reload  # 테스트 하나만
 BP_PROFILE=full make -C tb              # 모든 패턴 × 프로파일 (야간)
 sby -f formal/gamma.sby prove           # formal, 무한 증명 (k-induction)
+sby -f formal/gamma.sby datapath        # formal, 값에 대한 유한 증명
 sby -f formal/gamma.sby cover           # 도달 가능성 (공허하지 않음 확인)
 sby -f formal/gamma.sby bmc             # bounded, 반례 트레이스가 필요할 때
 

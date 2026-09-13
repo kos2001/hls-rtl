@@ -128,6 +128,20 @@ fills during downstream stalls), `test_single_pixel_latency` /
 `test_full_rate_throughput` pass unchanged, all 13 patterns bit-exact. Cost:
 +177 flops (6169→6346, the FIFO storage + pointers).
 
+## House style (`GET /style`)
+
+Nine rules encoding this repository's own conventions, folded into the `design`
+gate stage. Not a generic SystemVerilog guide: a stock ruleset spends its output
+asking for `logic` and `always_ff`, which this flow refuses deliberately, and
+rules that fight the codebase get muted — a muted linter checks nothing.
+
+Each rule cites the decision it enforces, and each was verified against a
+violation of itself, plus a negative case (a comment mentioning `logic`) to
+confirm it does not false-positive. `STYLE-DIALECT` is a `warn` because it
+breaks `TOPLEVEL_LANG=verilog`; the rest are notes. `STYLE-NAMING` is not
+cosmetic — `api/waveform.py` separates parameters from signals by case, so a
+lower-case parameter gets drawn as a waveform.
+
 ## Line coverage (`GET /coverage`)
 
 Verilator-instrumented run, annotated. **`never-executed` is the number that
@@ -159,6 +173,22 @@ the full sign-off gate. **100% caught**, no survivors:
 
 Every stage earns its place: `formal` and `4state` each catch faults nothing
 before them sees, and `configs` accounts for ten.
+
+## Formal datapath (`sby -f formal/gamma.sby datapath`)
+
+The control properties say pixels are not lost, duplicated, reordered or
+presented early. They say nothing about *what* comes out — that had rested
+entirely on the scoreboard, and therefore only on the inputs in the test set.
+
+The `datapath` task adds a reference model written **from the spec, not read
+from the DUT**: a shadow of the three LUTs maintained from the write port (with
+the reserved encoding writing nothing) and a shadow queue driven by the same
+handshakes. It is BOUNDED — see `docs/UARCH.md` §8 for why induction does not
+close here.
+
+Verified against three value faults, each failing `a_datapath_value`: a crossed
+channel on read, the reserved `lut_ch` encoding writing into channel R, and a
+channel reading with the wrong pixel's address.
 
 Every survivor so far has been in the `LUT_SYNC_READ=1` generate branch, which
 the default elaboration never builds — first three of them, which the `configs`
