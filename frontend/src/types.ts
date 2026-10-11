@@ -17,6 +17,9 @@ export interface PatternResult {
 }
 
 export interface VerificationResults {
+  /** Client provenance: bundled results must never be presented as live evidence. */
+  resultMode?: 'live' | 'snapshot'
+  evidence_kind?: 'reference' | 'regression'
   schema_version: string
   source: string
   design: { module: string; pixel_w: number; lut_depth: number }

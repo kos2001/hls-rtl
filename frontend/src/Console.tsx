@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { SEV_RANK, log, useLog } from './log'
 import type { Severity } from './log'
 import { useT } from './i18n'
+import { Icon } from './components/Icon'
 
 /**
  * Tool transcript — the bottom pane every commercial EDA GUI keeps.
@@ -24,7 +25,7 @@ function ts(t: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`
 }
 
-export function Console({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+export function Console({ open, onToggle, onExport }: { open: boolean; onToggle: () => void; onExport?: () => void }) {
   const t = useT()
   const lines = useLog()
   const [threshold, setThreshold] = useState<Severity>('INFO')
@@ -59,15 +60,16 @@ export function Console({ open, onToggle }: { open: boolean; onToggle: () => voi
   function copyAll() {
     const text = shown.map((l) =>
       `${ts(l.ts)} ${l.sev}-[${l.tag}] ${l.text}${l.detail ? `\n${l.detail}` : ''}`).join('\n')
-    void navigator.clipboard?.writeText(text)
-    log.info('CONSOLE', `${shown.length} line(s) copied to clipboard`)
+    if (!navigator.clipboard) { log.warn('CONSOLE', 'Clipboard unavailable; use Export instead.'); return }
+    void navigator.clipboard.writeText(text).then(() => log.info('CONSOLE', `${shown.length} line(s) copied to clipboard`))
+      .catch(() => log.warn('CONSOLE', 'Clipboard access denied; use Export instead.'))
   }
 
   return (
     <section className={`console ${open ? '' : 'console-collapsed'}`}>
       <header className="console-head">
-        <button className="console-toggle" onClick={onToggle} title={open ? 'Collapse' : 'Expand'}>
-          {open ? '▾' : '▴'} {t('Transcript')}
+        <button className="console-toggle" onClick={onToggle} title={open ? 'Collapse' : 'Expand'} aria-expanded={open} aria-controls="session-transcript">
+          <Icon name="terminal" size={16} /> {t('Transcript')} <Icon name="down" size={13} style={{ transform: open ? undefined : 'rotate(180deg)' }} />
         </button>
 
         <div className="sev-filter" role="group" aria-label="severity threshold">
@@ -85,7 +87,7 @@ export function Console({ open, onToggle }: { open: boolean; onToggle: () => voi
         </div>
 
         <input className="console-search" value={q} onChange={(e) => setQ(e.target.value)}
-               placeholder={t('filter (tag or text)')} />
+               placeholder={t('filter (tag or text)')} aria-label={t('Filter transcript')} />
 
         <div className="console-actions">
           <label className="console-follow">
@@ -94,11 +96,12 @@ export function Console({ open, onToggle }: { open: boolean; onToggle: () => voi
           </label>
           <button className="tb-btn" onClick={copyAll}>{t('Copy')}</button>
           <button className="tb-btn" onClick={log.clear}>{t('Clear')}</button>
+          {onExport && <button className="tb-btn transcript-export" onClick={onExport} title={t('Export transcript…')} aria-label={t('Export transcript…')}><Icon name="download" size={14} /></button>}
         </div>
       </header>
 
       {open && (
-        <div className="console-body" ref={bodyRef}>
+        <div className="console-body" id="session-transcript" ref={bodyRef}>
           {shown.length === 0 && (
             <div className="console-line console-empty">
               <span className="muted small">

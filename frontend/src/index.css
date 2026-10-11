@@ -1,16 +1,5 @@
-/* ============================================================================
-   RTL Verification Workbench — EDA tool chrome
-   ----------------------------------------------------------------------------
-   Visual language borrowed from commercial EDA GUIs (Cadence Xcelium/Innovus,
-   Synopsys Verdi/SpyGlass): dense type, square corners, hairline panel borders,
-   monospace for every value, and a persistent severity-coded transcript.
-   Density is functional — an engineer compares 13 patterns x 3 hashes at a
-   glance, so rows are 24-28px and padding is measured in single digits.
-
-   Two themes: `dark` (Innovus-like) and `light` (Verdi/SpyGlass-like grey).
-   Set on <html data-theme>; every colour resolves through a token so a pane
-   never hard-codes one.
-   ========================================================================= */
+/* Detailed EDA viewer styles. The product shell and theme tokens live in
+   styles/workspace.css, loaded after this stylesheet. */
 
 :root,
 :root[data-theme='dark'] {
@@ -155,141 +144,6 @@ code {
   overflow: hidden;   /* the shell never scrolls; its panes do */
 }
 
-/* ------------------------------------------------------------- menu bar ---- */
-.menubar {
-  display: flex;
-  align-items: stretch;
-  min-height: 28px;
-  gap: 2px;
-  background: var(--chrome);
-  border-bottom: 1px solid var(--border);
-  padding-right: 8px;
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 12px 0 10px;
-  margin-right: 6px;
-  border-right: 1px solid var(--border);
-}
-.brand-mark {
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: var(--work);
-  background: var(--accent);
-  border-radius: 2px;
-  padding: 2px 5px;
-}
-.brand-name { font-weight: 600; font-size: 12px; letter-spacing: -0.01em; }
-.brand-design {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--muted);
-  border-left: 1px solid var(--border);
-  padding-left: 8px;
-}
-
-.menu { position: relative; display: flex; }
-.menu-btn {
-  background: transparent;
-  border: none;
-  color: var(--text-dim);
-  font: inherit;
-  font-size: 12px;
-  padding: 0 11px;
-  cursor: pointer;
-}
-.menu-btn:hover { background: var(--chrome-2); color: var(--text); }
-.menu-btn-open { background: var(--accent-dim); color: var(--text); }
-
-.menu-pop {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 50;
-  min-width: 210px;
-  background: var(--chrome-2);
-  border: 1px solid var(--border);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  padding: 3px;
-}
-.menu-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 20px;
-  width: 100%;
-  background: transparent;
-  border: none;
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  padding: 5px 9px;
-  cursor: pointer;
-}
-.menu-item:hover:not(:disabled) { background: var(--accent); color: #fff; }
-.menu-item:disabled { color: var(--muted); cursor: not-allowed; }
-.menu-accel { font-family: var(--mono); font-size: 10px; opacity: 0.7; }
-
-.menubar-right { margin-left: auto; display: flex; align-items: center; }
-.conn {
-  font-family: var(--mono);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 2px 7px;
-  border-radius: 2px;
-}
-.conn-ok { color: var(--ok); background: var(--ok-bg); }
-.conn-bad { color: var(--fail); background: var(--fail-bg); }
-
-/* -------------------------------------------------------------- toolbar ---- */
-.toolbar {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  min-height: 36px;
-  gap: 3px;
-  padding: 3px 8px;
-  background: var(--chrome-2);
-  border-bottom: 1px solid var(--border);
-}
-.tool {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 2px;
-  color: var(--text-dim);
-  font: inherit;
-  font-size: 12px;
-  padding: 4px 9px;
-  cursor: pointer;
-}
-.tool:hover:not(:disabled) { background: var(--chrome); border-color: var(--border); color: var(--text); }
-.tool:disabled { opacity: 0.45; cursor: not-allowed; }
-.tool-ico { font-family: var(--mono); font-size: 12px; opacity: 0.85; }
-.tool-primary { color: var(--text); border-color: var(--border); background: var(--chrome); }
-.tool-primary:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-.tool-sep { width: 1px; height: 18px; background: var(--border); margin: 0 5px; }
-.toolbar-right {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 4px;
-  min-width: 0;
-}
-
-/* Chrome never shrinks; the two content areas negotiate what is left. */
-.menubar, .toolbar, .statusbar { flex: none; }
-
 /* ------------------------------------------------------------ workspace ---- */
 .workspace {
   /* flex, not grid: the splitters are real children between the panes, and a
@@ -417,35 +271,6 @@ code {
   flex: 1 1 0;
   min-width: 0;
   min-height: 0;
-}
-
-.view-tabs {
-  display: flex;
-  /* wrap, don't scroll: a horizontally scrolled tab strip hides views entirely
-     once the labels grow under zoom, and there is no affordance saying so. */
-  flex-wrap: wrap;
-  gap: 0;
-  background: var(--chrome);
-  border-bottom: 1px solid var(--border);
-}
-.view-tab {
-  background: transparent;
-  border: none;
-  border-right: 1px solid var(--border-soft);
-  border-bottom: 2px solid transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: 11.5px;
-  font-weight: 600;
-  padding: 6px 15px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.view-tab:hover { color: var(--text); background: var(--chrome-2); }
-.view-tab-active {
-  color: var(--accent);
-  background: var(--work);
-  border-bottom-color: var(--accent);
 }
 
 .view-body {
@@ -1175,11 +1000,8 @@ textarea:focus, .fld-input:focus { outline: none; border-color: var(--accent); }
 }
 @media (max-width: 860px) {
   .navigator, .navigator + .splitter-x { display: none; }
-  .brand-design { display: none; }
-  .toolbar-right { width: 100%; justify-content: flex-start; }
 }
 @media (max-width: 620px) {
-  .brand-name { display: none; }
   .console-search { width: 110px; }
   .stat-strip { grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); }
 }
@@ -1282,105 +1104,6 @@ textarea:focus, .fld-input:focus { outline: none; border-color: var(--accent); }
 }
 .cite-pin { color: var(--muted); }
 
-/* ------------------------------------------------------------- overview ---- */
-.brand-thesis {
-  font-size: 10.5px;
-  color: var(--muted);
-  border-left: 1px solid var(--border);
-  padding-left: 8px;
-  white-space: nowrap;
-}
-@media (max-width: 1240px) { .brand-thesis { display: none; } }
-
-.thesis {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  border-radius: 3px;
-  padding: 14px 18px;
-  margin-bottom: 11px;
-}
-.thesis-claim {
-  font-size: 17px;
-  font-weight: 650;
-  letter-spacing: -0.015em;
-  line-height: 1.35;
-  margin: 0 0 8px;
-  color: var(--text);
-}
-.thesis-body { margin: 0 0 8px; font-size: 12.5px; line-height: 1.6; color: var(--text-dim); }
-.thesis-claim-2 {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.6;
-  color: var(--text);
-  background: var(--panel-2);
-  border: 1px solid var(--border-soft);
-  border-radius: 2px;
-  padding: 8px 11px;
-}
-
-/* proof chain */
-.rungs { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; }
-.rung-wrap { display: flex; align-items: center; flex: 1 1 220px; min-width: 0; }
-.rung {
-  flex: 1;
-  min-width: 0;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-top-width: 3px;
-  border-radius: 2px;
-  padding: 8px 11px;
-}
-.rung-oracle { border-top-color: var(--accent); }
-.rung-pass { border-top-color: var(--ok); }
-.rung-fail { border-top-color: var(--fail); }
-.rung-skip { border-top-color: var(--muted); }
-.rung-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.rung-label { font-family: var(--mono); font-size: 13px; font-weight: 700; }
-.rung-role { font-size: 10.5px; color: var(--muted); margin: 2px 0 5px; }
-.rung-detail { line-height: 1.45; }
-.rung-arrow {
-  flex: none;
-  padding: 0 9px;
-  color: var(--accent);
-  font-family: var(--mono);
-  font-size: 15px;
-  font-weight: 700;
-}
-
-/* DUT fact grid */
-.dut-facts {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 1px;
-  background: var(--border-soft);
-  border: 1px solid var(--border-soft);
-  border-radius: 2px;
-}
-.dut-fact { background: var(--panel); padding: 6px 10px; display: flex; flex-direction: column; gap: 2px; }
-.dut-k {
-  font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted);
-}
-.dut-v { font-size: 11.5px; color: var(--text); }
-
-/* capability grid */
-.caps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 5px; }
-.cap {
-  display: flex; flex-direction: column; gap: 2px; text-align: left;
-  background: var(--panel-2); border: 1px solid var(--border);
-  border-radius: 2px; padding: 7px 10px; color: var(--text-dim);
-  font: inherit; cursor: default;
-}
-.cap-go { cursor: pointer; }
-.cap-go:hover { border-color: var(--accent); color: var(--text); }
-.cap-n {
-  font-family: var(--mono); font-size: 9.5px; font-weight: 700;
-  color: var(--accent); letter-spacing: 0.05em;
-}
-.cap-title { font-size: 12px; font-weight: 600; }
-.cap-gap { line-height: 1.4; }
-
 .spec-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .spec-row .fld-label { margin-bottom: 0; }
 
@@ -1475,4 +1198,3 @@ textarea:focus, .fld-input:focus { outline: none; border-color: var(--accent); }
 .lang-on { background: var(--accent); color: #fff; }
 /* Korean needs a touch more line height than the Latin-tuned defaults. */
 :root:lang(ko) body { line-height: 1.5; }
-:lang(ko) .thesis-claim { letter-spacing: -0.02em; }

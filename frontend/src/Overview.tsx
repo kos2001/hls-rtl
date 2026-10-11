@@ -1,183 +1,116 @@
-import type { KbStats, QoRReport, SkillReport, VerificationResults } from './types'
+import { useState } from 'react'
+import { Icon, type IconName } from './components/Icon'
 import { useT } from './i18n'
-
-/**
- * Overview — what this workbench is FOR.
- *
- * Every other view answers "what is the current state". None of them answered
- * "why does any of this exist", so the thesis lived only in module docstrings
- * that nobody opening the UI would read. This states it once, and then shows the
- * live evidence for it rather than asserting it.
- */
+import { isReference } from './evidence'
+import type { View } from './navigation'
+import type { KbStats, PatternResult, QoRReport, SkillReport, Telemetry, VerificationResults } from './types'
+import { StatusBadge } from './views/shared'
 
 interface Props {
   data: VerificationResults | null
   qor: QoRReport | null
   skills: SkillReport | null
   kb: KbStats | null
-  onGo: (view: string) => void
+  telemetry: Telemetry | null
+  busy: boolean
+  onGo: (view: View) => void
+  onPick: (pattern: PatternResult) => void
+  onRun: () => void
+  onReload: () => void
 }
 
-interface Rung {
-  id: string
-  label: string
-  role: string
-  status: 'oracle' | 'pass' | 'fail' | 'skip'
-  detail: string
+function Metric({ label, value, suffix, detail, icon, tone }: { label: string; value: string; suffix?: string; detail: string; icon: IconName; tone?: string }) {
+  return <div className="metric-card"><div className="metric-top"><span>{label}</span><Icon name={icon} size={17} /></div><div className={`metric-value ${tone ?? ''}`}>{value}<span>{suffix}</span></div><div className="metric-detail">{detail}</div></div>
 }
 
-const CAPABILITIES: { n: string; title: string; gap: string; view?: string }[] = [
-  { n: '1', title: 'Progressive-coding oracle', gap: 'NL→C++→RTL has no ground truth at any rung', view: 'flows' },
-  { n: '2', title: 'Golden-as-oracle contract', gap: 'the exact hashes a candidate must reproduce', view: 'scoreboard' },
-  { n: '3', title: 'Segment traceability', gap: 'regenerate only what actually changed' },
-  { n: '4', title: 'Planner', gap: 'spec delta → tagged, reviewable steps', view: 'assistant' },
-  { n: '5', title: 'Adaptive reflection', gap: 'a failure names its own root stage', view: 'flows' },
-  { n: '6', title: 'Graph RAG', gap: 'structure-aware grounding', view: 'flows' },
-  { n: '7', title: 'Equivalence (LEC)', gap: 'old ≡ new, proven not sampled', view: 'flows' },
-  { n: '+', title: 'Knowledge base', gap: 'answers cite the passage behind them', view: 'knowledge' },
-]
+function roundEven(value: number) {
+  const lower = Math.floor(value)
+  return value - lower === 0.5 ? (lower % 2 ? lower + 1 : lower) : Math.round(value)
+}
 
-export function Overview({ data, qor, skills, kb, onGo }: Props) {
+/** Reference LUT curves from the golden-model equation, not measured waveforms. */
+function GammaChart({ data }: { data: VerificationResults | null }) {
   const t = useT()
-  const scSkipped = !!data?.patterns.every((p) => !p.sc_sha256)
-  const failed = data?.summary.failed ?? 0
+  const [input, setInput] = useState(128)
+  const colors = ['var(--curve-r)', 'var(--curve-g)', 'var(--curve-b)']
+  const channels = data ? Object.entries(data.gammas) : []
+  const maxIn = (data?.design.lut_depth ?? 256) - 1
+  const maxOut = 2 ** (data?.design.pixel_w ?? 8) - 1
+  const selected = Math.min(input, maxIn)
+  const output = (x: number, gamma: number) => roundEven((x / maxIn) ** (1 / gamma) * maxOut)
+  const x = (value: number) => 45 + value / maxIn * 500
+  const y = (value: number) => 192 - value / maxOut * 165
+  return <>
+    <div className="chart-heading"><div><h2>{t('Gamma transfer curves')}</h2><p>{t('Independent channels. One reference model.')}</p></div><span className="subtle-tag">{t('REFERENCE LUT')}</span></div>
+    {data ? <><div className="chart-legend">{channels.map(([channel, gamma], index) => <span key={channel}><i style={{ background: colors[index % colors.length] }} />{channel.toUpperCase()}<span className="mono">γ {gamma}</span></span>)}</div>
+      <svg className="gamma-chart" viewBox="0 0 580 225" role="img" aria-label={t('Gamma correction reference curves for red, green, and blue channels')}
+        onMouseMove={event => { const bounds = event.currentTarget.getBoundingClientRect(); setInput(Math.max(0, Math.min(maxIn, Math.round(((event.clientX - bounds.left) / bounds.width * 580 - 45) / 500 * maxIn)))) }}>
+        {[0, 0.25, 0.5, 0.75, 1].map(fraction => <g key={fraction}><line x1="45" x2="545" y1={y(fraction * maxOut)} y2={y(fraction * maxOut)} className="chart-grid" /><text x="32" y={y(fraction * maxOut) + 4} textAnchor="end">{Math.round(fraction * maxOut)}</text><line x1={x(fraction * maxIn)} x2={x(fraction * maxIn)} y1="27" y2="192" className="chart-grid chart-grid-vertical" /><text x={x(fraction * maxIn)} y="213" textAnchor="middle">{Math.round(fraction * maxIn)}</text></g>)}
+        <line x1="45" x2="545" y1="192" y2="27" className="chart-linear" />
+        {channels.map(([channel, gamma], index) => <path key={channel} d={Array.from({ length: 129 }, (_, i) => { const value = Math.round(i / 128 * maxIn); return `${i ? 'L' : 'M'}${x(value).toFixed(2)},${y(output(value, gamma)).toFixed(2)}` }).join(' ')} fill="none" stroke={colors[index % colors.length]} strokeWidth="2.5" />)}
+        <line x1={x(selected)} x2={x(selected)} y1="27" y2="192" className="chart-marker" />
+        {channels.map(([channel, gamma], index) => <circle key={channel} cx={x(selected)} cy={y(output(selected, gamma))} r="4" fill={colors[index % colors.length]} stroke="var(--panel)" strokeWidth="2" />)}
+      </svg>
+      <div className="chart-controls"><label htmlFor="gamma-input">{t('Input')} <b className="mono">{selected}</b></label><input id="gamma-input" type="range" min="0" max={maxIn} value={selected} onChange={event => setInput(Number(event.target.value))} />
+        <div className="chart-output">{channels.map(([channel, gamma], index) => <span key={channel} style={{ color: colors[index % colors.length] }}>{channel.toUpperCase()} <b>{output(selected, gamma)}</b></span>)}</div></div>
+      <p className="chart-caption">{t('Reference equation: output = round((input / max)^(1/γ) × max).')}</p>
+    </> : <div className="chart-no-data"><Icon name="chart" size={30} /><span>{t('Load verification results to explore the reference curves.')}</span></div>}
+  </>
+}
 
-  const rungs: Rung[] = [
-    {
-      id: 'golden', label: 'golden', role: 'Python · numpy',
-      status: 'oracle',
-      detail: t('defines the expected values — untimed, independent, cheap to re-run'),
-    },
-    {
-      id: 'systemc', label: 'systemc', role: 'C++ · cycle-accurate',
-      status: scSkipped ? 'skip' : failed ? 'fail' : 'pass',
-      detail: scSkipped
-        ? t('skipped — build/sc_out.txt absent. Missing evidence, not a pass.')
-        : t('bit-exact against the oracle'),
-    },
-    {
-      id: 'rtl', label: 'rtl', role: 'Verilog-2001 · synthesizable',
-      status: data ? (failed ? 'fail' : 'pass') : 'skip',
-      detail: data
-        ? `${data.summary.passed}/${data.summary.total_patterns} patterns, ${data.summary.total_pixels.toLocaleString()} pixels compared`
-        : t('no results loaded'),
-    },
+export function Overview({ data, qor, skills, kb, telemetry, busy, onGo, onPick, onRun, onReload }: Props) {
+  const t = useT()
+  const reference = isReference(data)
+  const snapshot = data?.resultMode === 'snapshot'
+  const total = data?.summary.total_patterns ?? 0
+  const allPass = total > 0 && data?.summary.failed === 0 && data.summary.passed === total
+  const hasSc = !reference && !!data?.patterns.length && data.patterns.every(pattern => !!pattern.sc_sha256)
+  const scMatches = hasSc && data!.patterns.every(pattern => pattern.sc_sha256 === pattern.golden_sha256)
+  const rtlMatches = !reference && !!data?.patterns.length && data.patterns.every(pattern => pattern.rtl_sha256 === pattern.golden_sha256 && pattern.status === 'pass')
+  const passRate = total ? Math.round((data!.summary.passed / total) * 100) : 0
+  const models = [
+    { title: 'Python golden', language: 'Python · NumPy', icon: 'book' as const, status: data ? 'oracle' : 'skip', detail: t('Independent executable reference') },
+    { title: 'SystemC', language: 'C++ · cycle-accurate', icon: 'flow' as const, status: hasSc ? scMatches ? 'pass' : 'fail' : 'skip', detail: hasSc ? t('Frame hashes compared to golden') : t('Missing comparison evidence') },
+    { title: 'Verilog RTL', language: 'Verilog-2001', icon: 'chip' as const, status: data && !reference ? rtlMatches ? 'pass' : 'fail' : 'skip', detail: data && !reference ? `${data.summary.passed}/${total} ${t('patterns bit-exact')}` : reference ? t('Measured simulation required') : t('no results loaded') },
+  ]
+  const actions: { title: string; detail: string; icon: IconName; view: View }[] = [
+    { title: 'Inspect waveforms', detail: 'Understand signal timing', icon: 'wave', view: 'waveform' },
+    { title: 'Explore schematic', detail: 'Follow your design connections', icon: 'chip', view: 'schematic' },
+    { title: 'Ask the assistant', detail: 'Answers grounded in your project', icon: 'sparkles', view: 'assistant' },
   ]
 
-  return (
-    <div className="view-scroll">
-      <section className="thesis">
-        <h1 className="thesis-claim">
-          {t('An agent can write plausible RTL. It cannot tell you whether the RTL is right.')}
-        </h1>
-        <p className="thesis-body">
-          Spec2RTL-style agents generate HDL and then have nothing to check it against —
-          “the tests the agent also wrote pass” is the whole argument. This workbench
-          supplies the missing half: an <b>executable oracle</b>, and a loop that proves
-          each representation against it.
-        </p>
-        <p className="thesis-claim-2">
-          For every pattern in the test set, the Python golden, the SystemC model and the
-          Verilog RTL produce <b>byte-identical output</b>, and the SHA-256 of each frame
-          proves it.
-        </p>
-      </section>
-
-      <section className="panel">
-        <div className="panel-head">
-          <h2>{t('The proof chain')}</h2>
-          <button className="tb-btn" onClick={() => onGo('scoreboard')}>{t('Open scoreboard →')}</button>
-        </div>
-        <div className="rungs">
-          {rungs.map((r, i) => (
-            <div key={r.id} className="rung-wrap">
-              <div className={`rung rung-${r.status}`}>
-                <div className="rung-top">
-                  <span className="rung-label">{r.label}</span>
-                  <span className={`badge badge-${r.status === 'oracle' ? 'pass' : r.status}`}>
-                    {r.status === 'oracle' ? 'oracle' : r.status}
-                  </span>
-                </div>
-                <div className="rung-role">{r.role}</div>
-                <div className="rung-detail muted small">{r.detail}</div>
-              </div>
-              {i < rungs.length - 1 && <div className="rung-arrow">≡</div>}
-            </div>
-          ))}
-        </div>
-        <p className="panel-foot muted small">
-          The golden model is <b>untimed</b>, so it cannot express a handshake bug. That is
-          exactly why comparing against it separates <i>value</i> correctness from{' '}
-          <i>timing</i> correctness: backpressure reorders pixels in time but must not
-          change the hash.
-        </p>
-      </section>
-
-      <section className="panel panel-caveat">
-        <strong>{t('What this does not prove.')}</strong> The regression runs under Verilator,
-        which is 2-state. These hashes cover value equality on the listed patterns; they
-        do not cover X-propagation or reset-initialization behaviour. A skipped stage is
-        missing evidence, not a pass. Cross-check with{' '}
-        <code>make -C tb SIM=icarus</code> before claiming those are clean.
-      </section>
-
-      <section className="panel">
-        <div className="panel-head">
-          <h2>{t('Design under verification')}</h2>
-          <button className="tb-btn" onClick={() => onGo('schematic')}>{t('Open schematic →')}</button>
-        </div>
-        <div className="dut-facts">
-          <Fact k={t('module')} v={data?.design.module ?? 'gamma'} />
-          <Fact k={t('throughput')} v="1 pixel / cycle" />
-          <Fact k={t('latency')} v="1 cycle (accept → valid)" />
-          <Fact k={t('handshake')} v="ready/valid, no out_ready→in_ready path" />
-          <Fact k={t('elasticity')} v="FIFO_DEPTH = 8 (knee of the sweep)" />
-          <Fact k={t('precision')} v={data ? `${data.design.pixel_w}b · LUT ${data.design.lut_depth}` : '8b · LUT 256'} />
-          <Fact k="γ per channel" v={data ? Object.values(data.gammas).join(' / ') : '2.2 / 1.8 / 2.8'} />
-          <Fact k="QoR" v={qor ? `${qor.score}/100 (${qor.grade})` : '—'} />
-        </div>
-        <p className="panel-foot muted small">
-          Per-channel gammas differ on purpose: with identical LUTs a crossed-channel bug
-          produces identical output and passes silently. Full spec in{' '}
-          <code>docs/UARCH.md</code>, indexed into the knowledge base
-          {kb ? ` (${kb.chunks} passages)` : ''}.
-        </p>
-      </section>
-
-      <section className="panel">
-        <div className="panel-head">
-          <h2>{t('What the workbench adds')}</h2>
-          <span className="muted small">{t('each exists because a generate-then-hope loop lacks it')}</span>
-        </div>
-        <div className="caps">
-          {CAPABILITIES.map((c) => (
-            <button
-              key={c.n}
-              className={`cap ${c.view ? 'cap-go' : ''}`}
-              onClick={() => c.view && onGo(c.view)}
-              disabled={!c.view}
-            >
-              <span className="cap-n">{c.n}</span>
-              <span className="cap-title">{c.title}</span>
-              <span className="cap-gap muted small">{c.gap}</span>
-            </button>
-          ))}
-        </div>
-        <p className="panel-foot muted small">
-          Agent answers are grounded in the retrieved knowledge base and cite the passage
-          behind each claim
-          {skills ? `; ${skills.active.length}/${skills.skills.length} skills loaded on profile ${skills.profile}` : ''}.
-        </p>
+  return <div className="view-scroll overview-dashboard">
+    {snapshot && <div className="snapshot-notice" role="status"><Icon name="info" size={18} /><span><strong>{t('You are viewing a saved snapshot.')}</strong> {t('Live verification and tool status will return when the backend reconnects.')}</span><button disabled={busy} onClick={onReload}>{t('Reconnect')}<Icon name="refresh" size={14} /></button></div>}
+    <section className={`verification-banner ${reference ? 'banner-reference' : allPass ? 'banner-pass' : data ? 'banner-fail' : 'banner-pending'}`}>
+      <div className="verification-banner-icon"><Icon name={reference ? 'book' : allPass ? 'shield' : data ? 'info' : 'clock'} size={27} /></div>
+      <div className="verification-banner-copy"><div className="banner-eyebrow">{reference ? t('REFERENCE MODEL') : t('VERIFICATION STATUS')}<span>{snapshot ? t('Saved snapshot') : data ? reference ? t('Expected values') : t('Latest results') : t('Awaiting results')}</span></div><h2>{data ? reference ? t('Your reference model is ready.') : allPass ? t('Every tested pattern matches.') : t('Patterns need your attention.') : t('Your verification workspace is ready.')}</h2><p>{data ? reference ? t('Expected hashes are available. Run sign-off to collect measured simulation evidence.') : `${data.summary.passed} ${t('of')} ${total} ${t('patterns agree with the golden model.')}` : t('Connect your tools to start building verification evidence.')} {!reference && (hasSc ? t('Three representations, independently compared.') : t('SystemC evidence is incomplete.'))}</p></div>
+      <button className="banner-button" onClick={() => onGo('scoreboard')}>{t('View scoreboard')}<Icon name="arrow" size={16} /></button>
+    </section>
+    <section className="metric-grid" aria-label={t('Project metrics')}>
+      <Metric label={reference ? t('Reference patterns') : t('Patterns verified')} value={data ? String(reference ? total : data.summary.passed) : '—'} suffix={data && !reference ? ` / ${total}` : ''} detail={data ? reference ? t('Expected outputs from the golden model') : `${passRate}% ${t('of the test set passes')}` : t('Awaiting verification data')} icon="check-square" tone={allPass && !reference ? 'text-ok' : ''} />
+      <Metric label={reference ? t('Pixels in test set') : t('Pixels compared')} value={data ? data.summary.total_pixels.toLocaleString() : '—'} detail={reference ? t('Ready for frame-level comparison') : t('Frame-level SHA-256 comparison')} icon="dashboard" />
+      <Metric label={t('Design quality')} value={qor ? String(qor.score) : '—'} suffix={qor ? ' / 100' : ''} detail={qor ? `${t('Grade')} ${qor.grade} · ${qor.checks.filter(check => check.ok).length}/${qor.checks.length} ${t('checks passed')}` : t('Quality analysis unavailable')} icon="chart" />
+      <Metric label={t('Archived sign-offs')} value={telemetry ? String(telemetry.count) : '—'} detail={telemetry?.count && telemetry.mean_score != null ? `${t('Mean score')} ${telemetry.mean_score}/100` : t('Run the full ladder to collect evidence')} icon="shield" />
+    </section>
+    <div className="overview-main-grid">
+      <section className="dashboard-card gamma-card"><GammaChart data={data} /></section>
+      <section className="dashboard-card evidence-card"><div className="card-heading"><div><h2>{t('The proof chain')}</h2><p>{t('Evidence at every representation.')}</p></div><Icon name="shield" size={18} /></div>
+        <div className="evidence-chain">{models.map((model, index) => <div className="evidence-stage" key={model.title}><div className={`evidence-icon evidence-${model.status}`}><Icon name={model.icon} size={18} /></div><div className="evidence-stage-copy"><div><h3>{model.title}</h3><span className={`evidence-status evidence-status-${model.status}`}>{model.status === 'oracle' ? t('Reference') : model.status === 'pass' ? t('Matched') : model.status === 'fail' ? t('Mismatch') : t('No evidence')}</span></div><span className="evidence-language">{model.language}</span><p>{model.detail}</p></div>{index < models.length - 1 && <span className="evidence-connector" />}</div>)}</div>
+        <div className="evidence-caveat"><Icon name="info" size={15} /><span>{t('A skipped stage is missing evidence, never a pass. 2-state simulation does not cover X/Z behavior.')}</span></div>
+        <button className="card-link" onClick={() => onGo('flows')}>{t('Explore verification flows')}<Icon name="arrow" size={16} /></button>
       </section>
     </div>
-  )
-}
-
-function Fact({ k, v }: { k: string; v: string }) {
-  return (
-    <div className="dut-fact">
-      <span className="dut-k">{k}</span>
-      <span className="dut-v mono">{v}</span>
+    <section className="quick-action-grid" aria-label={t('Quick actions')}>{actions.map(action => <button className="quick-action" key={action.view} onClick={() => onGo(action.view)}><span className="quick-action-icon"><Icon name={action.icon} size={20} /></span><span><strong>{t(action.title)}</strong><small>{t(action.detail)}</small></span><Icon name="arrow" size={17} /></button>)}</section>
+    <div className="overview-bottom-grid">
+      <section className="dashboard-card patterns-card"><div className="card-heading"><div><h2>{t('Test patterns')}</h2><p>{reference ? t('Reference inputs, ready for simulation.') : t('The latest results from your comparison matrix.')}</p></div><button className="card-link" onClick={() => onGo('scoreboard')}>{t('View all')}<Icon name="arrow" size={15} /></button></div>
+        <div className="table-wrap"><table className="grid overview-pattern-table"><thead><tr><th>{t('pattern')}</th><th>{t('status')}</th><th className="num">{t('pixels')}</th><th className="num">{t('mism.')}</th></tr></thead><tbody>{data?.patterns.slice(0, 6).map(pattern => <tr key={pattern.name}><td><button className="pattern-link mono" onClick={() => onPick(pattern)}><span className={`pattern-status-dot dot-${reference ? 'expected' : pattern.status}`} />{pattern.name}</button></td><td><StatusBadge status={reference ? 'expected' : pattern.status} /></td><td className="num">{pattern.pixels.toLocaleString()}</td><td className="num">{reference ? '—' : pattern.mismatches}</td></tr>)}</tbody></table>{!data && <div className="empty-inline">{t('Awaiting verification data')}</div>}</div>
+        <div className="patterns-foot"><span><Icon name="check-square" size={14} />SHA-256 · {reference ? t('Reference hashes') : t('Bit-exact comparison')}</span><span>{total} {t('patterns')}</span></div>
+      </section>
+      <section className="dashboard-card design-card"><div className="card-heading"><div><h2>{t('Design under verification')}</h2><p>{t('Per-channel gamma correction')}</p></div><Icon name="chip" size={18} /></div><dl className="design-facts"><div><dt>{t('module')}</dt><dd>{data?.design.module ?? 'gamma'}</dd></div><div><dt>{t('precision')}</dt><dd>{data ? `${data.design.pixel_w}-bit` : '—'}</dd></div><div><dt>{t('LUT depth')}</dt><dd>{data?.design.lut_depth ?? '—'}</dd></div><div><dt>{t('throughput')}</dt><dd>1 {t('pixel / cycle')}</dd></div><div><dt>{t('handshake')}</dt><dd>ready / valid</dd></div></dl>
+        <div className="design-resources"><button onClick={() => onGo('knowledge')}><Icon name="book" size={15} /><span>{t('Knowledge passages')}</span><b>{kb?.chunks ?? '—'}</b></button><button onClick={() => onGo('assistant')}><Icon name="sparkles" size={15} /><span>{t('Active agent skills')}</span><b>{skills ? `${skills.active.length}/${skills.skills.length}` : '—'}</b></button></div>
+        <button className="secondary-button design-signoff" onClick={onRun} disabled={busy}><Icon name="play" size={13} />{t('Run sign-off')}</button>
+      </section>
     </div>
-  )
+    <div className="overview-footer"><Icon name="shield" size={14} /><span>{t('An executable oracle. Independent implementations. Inspectable evidence.')}</span><button onClick={() => onGo('help')}>{t('How verification works')}<Icon name="arrow" size={14} /></button></div>
+  </div>
 }
