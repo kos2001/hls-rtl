@@ -1,4 +1,4 @@
-# Gamma Verification Workbench
+# hls-rtl — Gamma Verification Workbench
 
 **An AI agent can write plausible RTL. It cannot tell you whether the RTL is
 right.** That is the gap this project closes.
@@ -35,6 +35,45 @@ The claim is narrow and checkable: **for every pattern in the test set, the
 Python golden, the SystemC model and the Verilog RTL produce byte-identical
 output, and the SHA-256 of each frame proves it.** Not "the tests pass" —
 *these three independent implementations agree, and here is the hash.*
+
+---
+
+## Quick start
+
+```sh
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt -r api/requirements.txt
+
+python -m pytest tests/ -q                                # L0: golden model + test set, no simulator
+./scripts/run_3way.sh                                     # the full proof (needs Verilator; SystemC optional)
+
+# the workbench UI — two terminals
+uvicorn api.server:app --host 127.0.0.1 --port 8012       # api-server
+cd frontend && npm install && npm run dev                 # dashboard on http://127.0.0.1:5173
+```
+
+See [Run it](#run-it) for the per-layer commands and the tool prerequisites.
+
+## Screens
+
+<table>
+<tr>
+<td><img src="docs/img/workbench-overview.png" alt="Overview: reference patterns, design quality score and the proof chain" width="100%"></td>
+<td><img src="docs/img/scoreboard.png" alt="Scoreboard: per-pattern expected golden hashes next to measured RTL and SystemC hashes" width="100%"></td>
+</tr>
+<tr>
+<td><b>Overview</b> — the thesis and the live proof chain: Python golden → SystemC → Verilog RTL, with an honest "no evidence" state until sign-off has run.</td>
+<td><b>Scoreboard</b> — 13 patterns, one SHA-256 per frame. Shown here in the expected-only state (before a sign-off run fills in the measured RTL/SystemC columns).</td>
+</tr>
+<tr>
+<td><img src="docs/img/quality.png" alt="Quality: QoR score with design-rule checks" width="100%"></td>
+<td><img src="docs/img/schematic.png" alt="Schematic: layered RTL netlist graph drawn from the yosys netlist" width="100%"></td>
+</tr>
+<tr>
+<td><b>Quality</b> — verilator lint + yosys synthesis folded into a 0–100 QoR score and design-rule checks, calibrated for Verilog-2001.</td>
+<td><b>Schematic</b> — the elaborated netlist (yosys <code>proc + opt_clean</code>) drawn in the browser; click a cell to cross-probe its source line.</td>
+</tr>
+</table>
 
 ---
 
@@ -147,3 +186,7 @@ evidence, not a pass.
   under Icarus, an unbounded formal proof of the handshake, the non-default
   `LUT_SYNC_READ=1` configuration, and a mutation campaign that measures whether
   any of it would catch a bug.
+
+## License
+
+[MIT](LICENSE).
