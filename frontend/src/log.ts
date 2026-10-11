@@ -84,6 +84,10 @@ export function useLog(): LogLine[] {
   return useSyncExternalStore(subscribe, snapshot, snapshot)
 }
 
+export function formatTranscript(entries: LogLine[] = lines): string {
+  return entries.map(line => `${new Date(line.ts).toISOString()} ${line.sev}-[${line.tag}] ${line.text}${line.detail ? `\n${line.detail}` : ''}`).join('\n')
+}
+
 /**
  * Run an async action with full transcript framing: echo, banner, verdict,
  * and an ERROR line carrying the failure text if it throws.

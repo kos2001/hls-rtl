@@ -19,7 +19,7 @@ function Row({ k, v, mono = true }: { k: string; v: React.ReactNode; mono?: bool
   )
 }
 
-export function Properties({ sel, qor }: { sel: NavSelection | null; qor: QoRReport | null }) {
+export function Properties({ sel, qor, reference = false }: { sel: NavSelection | null; qor: QoRReport | null; reference?: boolean }) {
   const t = useT()
   return (
     <aside className="properties">
@@ -29,30 +29,30 @@ export function Properties({ sel, qor }: { sel: NavSelection | null; qor: QoRRep
           {t('Select an object in the navigator, or click a cell in the schematic.')}
         </p>
       )}
-      {sel && <Body sel={sel} qor={qor} />}
+      {sel && <Body sel={sel} qor={qor} reference={reference} />}
     </aside>
   )
 }
 
-function Body({ sel, qor }: { sel: NavSelection; qor: QoRReport | null }) {
+function Body({ sel, qor, reference }: { sel: NavSelection; qor: QoRReport | null; reference: boolean }) {
+  const t = useT()
   if (sel.kind === 'pattern') {
     const p = sel.data as PatternResult
     return (
       <>
         <div className="prop-head">{p.name}</div>
         <Row k="object" v="test pattern" mono={false} />
-        <Row k="status" v={<span className={`badge badge-${p.status}`}>{p.status}</span>} mono={false} />
+        <Row k="status" v={<span className={`badge badge-${reference ? 'expected' : p.status}`}>{reference ? t('Expected') : p.status}</span>} mono={false} />
         <Row k="pixels" v={p.pixels.toLocaleString()} />
-        <Row k="mismatches" v={p.mismatches} />
+        <Row k="mismatches" v={reference ? '—' : p.mismatches} />
         <div className="prop-sep">frame hashes (SHA-256)</div>
         <Row k="golden" v={<span title={p.golden_sha256}>{p.golden_sha256.slice(0, 16)}…</span>} />
-        <Row k="rtl" v={<span title={p.rtl_sha256}>{p.rtl_sha256.slice(0, 16)}…</span>} />
-        <Row k="systemc" v={p.sc_sha256
+        <Row k="rtl" v={reference ? <span className="muted">{t('Not measured')}</span> : <span title={p.rtl_sha256}>{p.rtl_sha256.slice(0, 16)}…</span>} />
+        <Row k="systemc" v={reference ? <span className="muted">{t('Not measured')}</span> : p.sc_sha256
           ? <span title={p.sc_sha256}>{p.sc_sha256.slice(0, 16)}…</span>
           : <span className="muted">skipped — no build/sc_out.txt</span>} />
         <p className="prop-note muted small">
-          Equality of all present hashes is the bit-exact proof for this pattern.
-          A skipped SystemC hash is missing evidence, not a pass.
+          {reference ? t('These are expected outputs, not measured RTL results. Run sign-off to verify the implementation.') : t('A skipped stage is missing evidence, never a pass. 2-state simulation does not cover X/Z behavior.')}
         </p>
       </>
     )

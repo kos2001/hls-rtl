@@ -26,21 +26,31 @@ import type {
 const BASE = '/api'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  })
-  if (!res.ok) {
-    let detail = ''
-    try {
-      const body = await res.json()
-      detail = body?.detail ?? JSON.stringify(body)
-    } catch {
-      detail = await res.text()
+  const controller = new AbortController()
+  // Simulator jobs can legitimately take minutes; reads should fail promptly.
+  const timer = setTimeout(() => controller.abort(), init?.method === 'POST' ? 900_000 : 30_000)
+  try {
+    const res = await fetch(`${BASE}${path}`, {
+      ...init,
+      headers: { 'Content-Type': 'application/json', ...init?.headers },
+      signal: init?.signal ?? controller.signal,
+    })
+    if (!res.ok) {
+      const raw = await res.text()
+      let detail = raw
+      try {
+        const body = JSON.parse(raw)
+        detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail ?? body)
+      } catch { /* Non-JSON proxy errors are still useful diagnostics. */ }
+      throw new Error(`${res.status} ${res.statusText}${detail ? ` — ${detail.slice(0, 1000)}` : ''}`)
     }
-    throw new Error(`${res.status} ${res.statusText}${detail ? ` — ${detail}` : ''}`)
+    return (await res.json()) as T
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error('The request timed out. Refresh or inspect the transcript before retrying.')
+    throw error
+  } finally {
+    clearTimeout(timer)
   }
-  return (await res.json()) as T
 }
 
 export const api = {
@@ -53,11 +63,11 @@ export const api = {
    */
   verification: async (): Promise<VerificationResults> => {
     try {
-      return await request<VerificationResults>('/verification')
+      return { ...await request<VerificationResults>('/verification'), resultMode: 'live' }
     } catch {
       const res = await fetch('/results.json')
       if (!res.ok) throw new Error('backend unreachable and no bundled results.json')
-      return (await res.json()) as VerificationResults
+      return { ...await res.json() as VerificationResults, resultMode: 'snapshot' }
     }
   },
 
