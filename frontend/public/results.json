@@ -135,5 +135,6 @@
       "rtl_sha256": "28a1f6f23c5f0622a012926254348beaab6d46dbff9ae086e437510b717dd27b",
       "sc_sha256": null
     }
-  ]
+  ],
+  "evidence_kind": "reference"
 }

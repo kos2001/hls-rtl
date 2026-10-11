@@ -137,14 +137,16 @@ def health() -> HealthOut:
 
 @app.get("/verification")
 def verification() -> Dict[str, Any]:
-    """Live 3-way scoreboard results, computed from the golden model over the
-    canonical test set. SHA-256 frame hashes match the cocotb regression."""
+    """Expected golden-model outputs, explicitly marked as reference data.
+
+    This request does not run RTL or SystemC. Measured verification requires
+    the sign-off / progressive regression endpoints.
+    """
     results = build_results()
     archive.record("verification", {
-        "status": "pass" if results["summary"]["failed"] == 0 else "fail",
-        "score": round(100 * results["summary"]["passed"]
-                       / max(1, results["summary"]["total_patterns"])),
-        "passed": results["summary"]["passed"],
+        "status": "reference",
+        "evidence_kind": "reference",
+        "score": None,
         "total": results["summary"]["total_patterns"],
     })
     return results
