@@ -56,9 +56,13 @@ def build_results() -> dict:
     passed = sum(1 for r in pattern_rows if r["status"] == "pass")
     return {
         "schema_version": "1.0",
+        # This endpoint computes expected values. It does not execute or read
+        # a simulation; consumers must not mistake the mirrored RTL hashes
+        # below for measured verification evidence.
+        "evidence_kind": "reference",
         "source": "golden model (gamma_golden) over test_set; mirrors cocotb 3-way scoreboard",
         "design": {"module": "gamma", "pixel_w": PIXEL_W, "lut_depth": LUT_SIZE},
-        "gammas": dict(test_set.DEFAULT_GAMMAS),
+        "gammas": test_set.gammas_from_env(),
         "summary": {
             "total_patterns": len(pattern_rows),
             "passed": passed,

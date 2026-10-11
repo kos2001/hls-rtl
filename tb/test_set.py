@@ -19,15 +19,18 @@ from gamma_golden import build_lut
 DEFAULT_GAMMAS = {"r": 2.2, "g": 1.8, "b": 2.8}
 
 
-def luts_from_env() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Per-channel LUTs. GAMMA env var (single float) overrides all three
-    channels — kept for the legacy single-gamma flow."""
+def gammas_from_env() -> dict[str, float]:
+    """The channel configuration used by both LUTs and dashboard metadata."""
     override = os.environ.get("GAMMA")
     if override is not None:
         g = float(override)
-        gammas = {"r": g, "g": g, "b": g}
-    else:
-        gammas = DEFAULT_GAMMAS
+        return {"r": g, "g": g, "b": g}
+    return dict(DEFAULT_GAMMAS)
+
+
+def luts_from_env() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Per-channel LUTs, with the legacy GAMMA override applied to all channels."""
+    gammas = gammas_from_env()
     return (
         build_lut(gamma=gammas["r"]),
         build_lut(gamma=gammas["g"]),

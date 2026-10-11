@@ -62,3 +62,57 @@ shows a `hermes: connected / no key` pill accordingly.
 If the backend is unreachable, the dashboard falls back to the bundled
 `public/results.json` snapshot (regenerate with
 `PYTHONPATH=tb:golden python scripts/gen_dashboard_data.py`).
+
+## Workspace interface
+
+The dashboard opens with the reference model, test-set metrics, an interactive
+RGB LUT chart, and the evidence available for Python, SystemC, and RTL. The
+sidebar groups design inspection, verification, and assistant tools. Detailed
+EDA views retain the design navigator, selection inspector, and resizable
+transcript as optional docks.
+
+- `⌘K` / `Ctrl+K`: search pages, patterns, and actions with keyboard navigation.
+- Views use URL hashes such as `#scoreboard`, supporting bookmarks and browser history.
+- Theme and language preferences persist locally; the interface supports English and Korean.
+- Pattern search and status filters work in the scoreboard. Selecting a pattern opens its inspector.
+- Results export as JSON. Transcript export includes the full session, including hidden or filtered messages.
+- Small screens use a navigation drawer. The main content scrolls independently of the shell.
+
+`/verification` currently calculates **expected reference outputs**, rather
+than reading measured simulator output. Its `evidence_kind: "reference"`
+metadata is preserved in exports. Reference data and older untagged snapshots
+never show a measured PASS; the UI hides their mirrored RTL hashes and displays
+“Not measured”. Run **Sign-off** for a measured stage report. Skipped stages
+remain missing evidence. The chart visualizes the golden LUT equation rather
+than captured waveform samples, and honors the `GAMMA` environment override.
+
+## Frontend structure
+
+`App.tsx` composes the workspace. `hooks/useWorkbench.ts` owns data fetching
+and serializes refresh/sign-off requests. `navigation.ts` defines the typed
+view registry; `hooks/useView.ts` handles URL navigation. `views/` contains the
+extracted scoreboard, quality, sign-off, flows, and assistant components.
+Heavy tools load on demand. `components/` contains shared icons, the search
+dialog, and the view error boundary. `styles/workspace.css` owns the product
+tokens and responsive shell; `index.css` contains the detailed EDA viewer styles.
+
+## UI checks
+
+```sh
+npm run build
+WORKBENCH_URL=http://127.0.0.1:5173/ npm run check:workspace
+WORKBENCH_URL=http://127.0.0.1:5173/ npm run check:responsive
+```
+
+The browser checks use an existing Playwright installation. Set
+`PLAYWRIGHT_PATH` to its package path if it is outside the project, and
+`PLAYWRIGHT_EXECUTABLE_PATH` when using a separately installed Chromium.
+`SCREENSHOT_DIR` optionally saves dark desktop, Korean light desktop, and
+mobile captures during the workspace check.
+
+`check:workspace` isolates the API with fixtures and checks provenance,
+interactive LUT endpoints, search, filters, exports, sign-off request/failure
+states, offline recovery, localization, theme persistence, and mobile history.
+It never starts a real simulator or calls the agent gateway.
+`check:responsive` visits all 11 views at 10 viewport sizes, including mobile,
+tablet, and 400% zoom equivalents, and fails on overflow or collapsed content.

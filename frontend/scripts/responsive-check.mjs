@@ -20,37 +20,7 @@
 // Playwright is not a dependency of this project — the check is a manual gate,
 // not part of `npm run build`. Resolve it wherever it happens to live so the
 // script runs from an npx cache without pulling ~300MB of browsers into the repo.
-import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
-
-// ESM `import` ignores NODE_PATH, so resolve through CommonJS (which honours it
-// and the npx cache) and import the resolved file URL. PLAYWRIGHT_PATH is the
-// explicit escape hatch.
-async function loadChromium() {
-  const attempts = [];
-  if (process.env.PLAYWRIGHT_PATH) attempts.push(process.env.PLAYWRIGHT_PATH);
-  attempts.push('playwright', 'playwright-core');
-  const require = createRequire(import.meta.url);
-  for (const name of attempts) {
-    try {
-      const entry = require.resolve(name);
-      const mod = await import(pathToFileURL(entry).href);
-      const pw = mod.chromium ?? mod.default?.chromium;
-      if (pw) return pw;
-    } catch { /* try the next candidate */ }
-  }
-  return null;
-}
-
-const chromium = await loadChromium();
-if (!chromium) {
-  console.error(
-    'playwright not found. This check is a manual gate, so playwright is not a\n' +
-    'dependency of this project. Run it with an existing install, e.g.\n' +
-    '  NODE_PATH="$(npm root -g)" node frontend/scripts/responsive-check.mjs\n' +
-    '  PLAYWRIGHT_PATH=/path/to/node_modules/playwright node frontend/scripts/responsive-check.mjs');
-  process.exit(2);
-}
+import { launchBrowser, navigate } from './browser-test-utils.mjs';
 
 const SIZES = [
   [2560, 1440, '27" @100%'],
@@ -61,12 +31,13 @@ const SIZES = [
   [ 672,  400, 'laptop @250% zoom'],
   [ 560,  333, 'laptop @300% zoom'],
   [ 420,  250, 'laptop @400% zoom'],
+  [ 390,  844, 'mobile portrait'],
+  [ 768, 1024, 'tablet portrait'],
 ];
-const VIEWS = ['Overview', 'Scoreboard', 'Waveform', 'Schematic', 'Quality',
-               'Knowledge', 'Assistant', 'Manual'];
+const VIEWS = ['overview', 'scoreboard', 'waveform', 'schematic', 'quality', 'signoff', 'flows', 'improve', 'knowledge', 'assistant', 'help'];
 
 const URL = process.env.WORKBENCH_URL || 'http://127.0.0.1:8012/';
-const browser = await chromium.launch();
+const browser = await launchBrowser();
 const page = await browser.newPage();
 await page.goto(URL);
 await page.waitForSelector('.workbench');
@@ -78,7 +49,7 @@ for (const [w, h, label] of SIZES) {
   await page.setViewportSize({ width: w, height: h });
   await page.waitForTimeout(320);
   for (const v of VIEWS) {
-    await page.click(`.view-tab:has-text("${v}")`).catch(() => {});
+    await navigate(page, v);
     await page.waitForTimeout(260);
     const m = await page.evaluate(() => {
       const q = s => document.querySelector(s);
@@ -105,7 +76,7 @@ for (const [w, h, label] of SIZES) {
     if (m.nav && m.nav < 130) bad.push(`navigator sliver ${m.nav}px`);
     if (m.props && m.props < 130) bad.push(`properties sliver ${m.props}px`);
     if (bad.length) problems.push({ size: label, view: v, issues: bad });
-    if (v === 'Scoreboard') {
+    if (v === 'scoreboard') {
       table.push(`  ${label.padEnd(20)} ${String(w + 'x' + h).padEnd(10)} ` +
         `body ${String(m.body[0] + 'x' + m.body[1]).padEnd(10)} ` +
         `nav ${String(m.nav || '—').padEnd(5)} props ${String(m.props || '—').padEnd(5)} ` +
